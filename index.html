@@ -321,6 +321,38 @@
   .join-error{ color:#8a4a41; font-size:.9rem; margin:10px 0 0; text-align:center; font-weight:700; }
   .code-input{ text-transform:uppercase; letter-spacing:.3em; font-size:1.5rem !important; text-align:center; }
 
+  .vote-grid{ display:grid; gap:8px; }
+  .vote-grid.three{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .vote-grid.four{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .vote-grid .vote-opt{ margin:0 !important; padding:10px 8px !important; text-align:center !important; display:flex !important; flex-direction:column; align-items:center; gap:2px; min-height:58px; justify-content:center; }
+  .vote-grid .vote-name{ font-size:.95rem; line-height:1.15; }
+  .vote-grid .vote-count{ font-size:.8rem; margin:0; }
+  .vote-opt:disabled{ opacity:.55; cursor:default; }
+  .vote-help{ margin:8px 2px 0; font-size:.85rem; color:#6b6152; min-height:1.2em; line-height:1.35; }
+  .seg{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+  .seg button{ font:inherit; font-weight:900; padding:10px 16px; border-radius:999px; border:2px solid #d9d3c5; background:#fffdf8; color:var(--ink); cursor:pointer; }
+  .seg button.on{ background:var(--yellow); border-color:var(--yellow-dark); }
+  .seg button:focus-visible, .tv-menu-btn:focus-visible{ outline:3px solid var(--red); outline-offset:2px; }
+  .next-speed{ margin:16px 0 4px; }
+  .ns-label{ font-weight:900; color:#5d6677; font-size:.9rem; margin-bottom:8px; }
+  .ns-now{ margin-top:8px; font-size:.85rem; color:#6b6152; min-height:1.2em; }
+  .tv-head-right{ display:flex; align-items:center; gap:1.5vw; }
+  .tv-menu-btn{ font:inherit; font-weight:900; font-size:clamp(14px,1.3vw,24px); padding:10px 22px; border-radius:999px; border:2px solid #d9d3c5; background:#fffdf8; color:var(--ink); cursor:pointer; }
+  .tv-menu{ position:fixed; inset:0; z-index:60; background:rgba(59,66,82,.6); display:flex; align-items:center; justify-content:center; padding:20px; }
+  .tv-menu-card{ background:var(--cream); border:2px solid #d9d3c5; border-radius:28px; padding:36px 40px; width:min(760px,100%); color:var(--ink); box-shadow:0 10px 30px rgba(59,66,82,.25); }
+  .tv-menu-card h2{ font-size:clamp(28px,2.6vw,46px); margin-bottom:12px; }
+  .menu-row{ padding:16px 0; border-bottom:1px solid #e3ddd0; }
+  .menu-row h3{ font-size:clamp(16px,1.4vw,24px); color:var(--red); margin-bottom:10px; }
+  .menu-row .seg{ justify-content:flex-start; }
+  .menu-row .seg button{ font-size:clamp(14px,1.2vw,22px); }
+  .menu-note{ margin:10px 0 0; color:#6b6152; font-weight:700; font-size:clamp(13px,1.05vw,18px); }
+  .tv-toast{ position:fixed; left:50%; top:3vh; transform:translateX(-50%) !important; z-index:55; background:#3b4252; color:#fffdf8; font-weight:900; font-size:clamp(18px,1.8vw,34px); padding:16px 32px; border-radius:999px; }
+  .tv-close-label{ margin:3vh 0 1vh; font-weight:900; color:#5d6677; font-size:clamp(14px,1.3vw,24px); }
+  .tv-close{ display:flex; flex-direction:column; gap:8px; }
+  .tv-close-row{ display:flex; justify-content:space-between; align-items:center; background:#fffdf8; border:2px solid #e3ddd0; border-radius:14px; padding:8px 16px; font-weight:900; font-size:clamp(16px,1.6vw,30px); }
+  .tv-close-row.hot{ background:var(--yellow); border-color:var(--yellow-dark); }
+  .tv-close-row .need{ color:#5d6677; }
+  .tv-close-row.hot .need{ color:var(--ink); }
   .tv{ display:none; }
   body.tv-mode{ display:block !important; padding:3vh 3vw !important; min-height:100vh; }
   body.tv-mode .app{ display:none !important; }
@@ -370,6 +402,8 @@
   body.tv-mode .winner-card{ max-width:640px; padding:44px; }
   body.tv-mode .winner-card .boomer{ width:240px; height:300px; }
   body.tv-mode .winner-card h2{ font-size:clamp(36px,4vw,72px); }
+  body.tv-mode .next-speed .seg button{ font-size:clamp(16px,1.5vw,28px); padding:12px 24px; }
+  body.tv-mode .ns-label, body.tv-mode .ns-now{ font-size:clamp(15px,1.3vw,24px); }
   body.tv-mode .winner-card p{ font-size:clamp(18px,1.8vw,32px); }
 </style>
 </head>
@@ -417,40 +451,23 @@
     </div>
     <div class="roster" id="lobby-roster"></div>
     <div class="vote-block">
-      <div class="vote-title">Pick tonight's race</div>
-      <button type="button" class="vote-opt" data-mode="line">
-        <div class="vote-name">Sprint line</div>
-        <div class="vote-desc">First to any row, column or diagonal wins. The classic.</div>
-        <div class="vote-count" id="count-line">0 votes</div>
-      </button>
-      <button type="button" class="vote-opt" data-mode="marathon">
-        <div class="vote-name">Marathon</div>
-        <div class="vote-desc">First line gets you the lap lead, but the race keeps going — winner is the first full card.</div>
-        <div class="vote-count" id="count-marathon">0 votes</div>
-      </button>
-      <button type="button" class="vote-opt" data-mode="double">
-        <div class="vote-name">Double dash</div>
-        <div class="vote-desc">You need two completed lines before you can call it.</div>
-        <div class="vote-count" id="count-double">0 votes</div>
-      </button>
+      <div class="vote-title">Pick the race</div>
+      <div class="vote-grid three">
+        <button type="button" class="vote-opt" data-mode="line"><span class="vote-name">Sprint line</span><span class="vote-count" id="count-line">0</span></button>
+        <button type="button" class="vote-opt" data-mode="double"><span class="vote-name">Double dash</span><span class="vote-count" id="count-double">0</span></button>
+        <button type="button" class="vote-opt" data-mode="marathon"><span class="vote-name">Marathon</span><span class="vote-count" id="count-marathon">0</span></button>
+      </div>
+      <p class="vote-help" id="help-mode"></p>
     </div>
     <div class="vote-block">
-      <div class="vote-title">Pick the pace</div>
-      <button type="button" class="vote-opt" data-pace="leisurely">
-        <div class="vote-name">Leisurely</div>
-        <div class="vote-desc">Slower calls throughout. Good for beginners or big cards.</div>
-        <div class="vote-count" id="count-leisurely">0 votes</div>
-      </button>
-      <button type="button" class="vote-opt" data-pace="standard">
-        <div class="vote-name">Standard</div>
-        <div class="vote-desc">Starts steady and speeds up as the race goes. The classic feel.</div>
-        <div class="vote-count" id="count-standard">0 votes</div>
-      </button>
-      <button type="button" class="vote-opt" data-pace="blazing">
-        <div class="vote-name">Blazing</div>
-        <div class="vote-desc">Fast from the gate and brutal by the end. For sharp eyes only.</div>
-        <div class="vote-count" id="count-blazing">0 votes</div>
-      </button>
+      <div class="vote-title">Pick the speed</div>
+      <div class="vote-grid four">
+        <button type="button" class="vote-opt" data-pace="gentle"><span class="vote-name">Gentle</span><span class="vote-count" id="count-gentle">0</span></button>
+        <button type="button" class="vote-opt" data-pace="leisurely"><span class="vote-name">Leisurely</span><span class="vote-count" id="count-leisurely">0</span></button>
+        <button type="button" class="vote-opt" data-pace="standard"><span class="vote-name">Standard</span><span class="vote-count" id="count-standard">0</span></button>
+        <button type="button" class="vote-opt" data-pace="blazing"><span class="vote-name">Blazing</span><span class="vote-count" id="count-blazing">0</span></button>
+      </div>
+      <p class="vote-help" id="help-pace"></p>
     </div>
     <button class="btn" id="btn-start">Start the Race 🏁</button>
     <p class="hint" id="lobby-hint">Everyone gets one vote for mode and one for pace. Most votes wins each — ties go to Sprint line / Standard.</p>
@@ -484,8 +501,12 @@
 <div class="tv" id="tv">
   <header class="tv-head">
     <h1>Greyhound <span>Speed Bingo</span></h1>
-    <div class="tv-banner" id="tv-banner"></div>
+    <div class="tv-head-right">
+      <div class="tv-banner" id="tv-banner"></div>
+      <button type="button" class="tv-menu-btn hidden" id="tv-menu-btn">Menu</button>
+    </div>
   </header>
+  <div class="tv-toast hidden" id="tv-toast"></div>
 
   <section id="tv-setup" class="tv-panel tv-center">
     <h2>Put this screen on the TV</h2>
@@ -525,10 +546,38 @@
       </div>
       <div class="tv-recent-label">Previous calls</div>
       <div class="tv-recent" id="tv-recent"></div>
+      <div class="tv-close-label">Who's close</div>
+      <div class="tv-close" id="tv-close"></div>
       <div class="tv-meta"><span>Room <b id="tv-code2"></b></span><span id="tv-count2"></span></div>
     </div>
     <div class="tv-panel tv-board" id="tv-board"></div>
   </section>
+</div>
+
+<div class="tv-menu hidden" id="tv-menu" role="dialog" aria-modal="true" aria-labelledby="tv-menu-title">
+  <div class="tv-menu-card">
+    <h2 id="tv-menu-title">Menu</h2>
+    <div class="menu-row">
+      <h3>Call speed</h3>
+      <div class="seg" id="menu-speed">
+        <button type="button" data-speed="votes">Players vote</button>
+        <button type="button" data-speed="gentle">Gentle</button>
+        <button type="button" data-speed="leisurely">Leisurely</button>
+        <button type="button" data-speed="standard">Standard</button>
+        <button type="button" data-speed="blazing">Blazing</button>
+      </div>
+      <p class="menu-note">Changes take effect right away and stay for the next rounds.</p>
+    </div>
+    <div class="menu-row">
+      <h3>Read the numbers aloud</h3>
+      <div class="seg" id="menu-voice"><button type="button" data-v="on">On</button><button type="button" data-v="off">Off</button></div>
+    </div>
+    <div class="menu-row">
+      <h3>Bing sound</h3>
+      <div class="seg" id="menu-bing"><button type="button" data-v="on">On</button><button type="button" data-v="off">Off</button></div>
+    </div>
+    <button class="btn" id="tv-menu-close">Done</button>
+  </div>
 </div>
 
 <div id="winner-overlay" class="winner-overlay hidden">
@@ -573,6 +622,15 @@
     </svg>
     <h2 id="winner-name">—</h2>
     <p>crosses the finish line first!</p>
+    <div class="next-speed hidden" id="next-speed">
+      <div class="ns-label">Speed for the next round</div>
+      <div class="seg" id="ns-seg">
+        <button type="button" data-step="-1">Slower</button>
+        <button type="button" data-step="0">Same</button>
+        <button type="button" data-step="1">Faster</button>
+      </div>
+      <div class="ns-now" id="ns-now"></div>
+    </div>
     <button class="btn secondary" id="btn-again">Race Again</button>
   </div>
 </div>
@@ -600,10 +658,32 @@ const MODES = {
   double:   {label:'Double dash',  need:'two completed lines'}
 };
 const PACE = {
+  gentle:    {label:'Gentle',    start:5000, floor:5000, dec:0},
   leisurely: {label:'Leisurely', start:4000, floor:2800, dec:20},
   standard:  {label:'Standard',  start:3000, floor:1400, dec:35},
   blazing:   {label:'Blazing',   start:2000, floor:700,  dec:50}
 };
+const PACE_KEYS = ['gentle','leisurely','standard','blazing'];
+const MODE_KEYS = ['line','double','marathon'];
+const MODE_DESC = {
+  line: 'Sprint line: first to finish any row, column or diagonal wins.',
+  double: 'Double dash: you need two finished lines to win.',
+  marathon: 'Marathon: the race keeps going until someone fills the whole card.'
+};
+const PACE_DESC = {
+  gentle: 'Gentle: a steady 5 seconds between every call.',
+  leisurely: 'Leisurely: starts at 4 seconds and never drops below about 3.',
+  standard: 'Standard: starts at 3 seconds and speeds up as the race goes.',
+  blazing: 'Blazing: fast from the gate and quicker every call.'
+};
+// Every row, column and diagonal, as indexes into a row*5+col card.
+const LINES = (()=>{
+  const L = [];
+  for(let r=0;r<5;r++){ const a=[]; for(let c=0;c<5;c++) a.push(r*5+c); L.push(a); }
+  for(let c=0;c<5;c++){ const a=[]; for(let r=0;r<5;r++) a.push(r*5+c); L.push(a); }
+  L.push([0,6,12,18,24]); L.push([4,8,12,16,20]);
+  return L;
+})();
 const CODE_CHARS = 'BCDFGHJKLMNPQRSTVWXZ';
 // Free public relays. Every device connects out to one, so no direct
 // phone-to-TV link is needed and home Wi-Fi vs cellular doesn't matter.
@@ -634,7 +714,18 @@ let state = {
   lastSoundEpoch: 0, lastSoundRevealed: 0,
   round: null,
   tvBoardBuilt: false,
+  lastNeedSent: null,
+  lastFalseAt: 0,
+  settings: loadSettings(),
 };
+
+function loadSettings(){
+  const d = { voice:true, bing:true };
+  try{ const v = JSON.parse(localStorage.getItem('ghb-settings') || '{}'); return Object.assign(d, v); }catch(e){ return d; }
+}
+function saveSettings(){
+  try{ localStorage.setItem('ghb-settings', JSON.stringify(state.settings)); }catch(e){}
+}
 
 // Authoritative game state. On the host (TV or a solo practice phone) this is the
 // source of truth. On a phone in a TV room it's the last copy the TV broadcast.
@@ -642,6 +733,9 @@ let gstate = {
   round: 1,
   roster: [],
   votes: { mode: {}, pace: {} },
+  paceOverride: null,
+  need: {},
+  falseCall: null,
   game: { status: 'waiting', mode: 'line', paceKey:'standard', practice: false, sequence: [], revealed: 0, speedMs: 2600 },
   winner: {}
 };
@@ -782,8 +876,27 @@ function playBing(){
   }catch(e){}
 }
 
-// One bing per newly called number. The TV makes the sound for the room;
-// phones only bing when practising alone, so a room of phones isn't a cacophony.
+function speak(text){
+  if(!('speechSynthesis' in window)) return;
+  try{
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = 0.95;
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+
+// Browsers only allow speech after a tap; an empty utterance during the tap unlocks it.
+function unlockSpeech(){
+  if(!('speechSynthesis' in window)) return;
+  try{ window.speechSynthesis.speak(new SpeechSynthesisUtterance('')); }catch(e){}
+}
+
+function callWords(item){ return item.col + '. ' + item.num; }
+
+// One bing and one spoken call per newly called number. The TV does this for the
+// room; phones only do it when practising alone, so a room of phones stays quiet.
 function maybeBing(gs){
   if(!gs.game || gs.game.status !== 'playing') return;
   if(gs.game.startedAt !== state.lastSoundEpoch){
@@ -792,7 +905,10 @@ function maybeBing(gs){
   }
   if((gs.game.revealed || 0) > state.lastSoundRevealed){
     state.lastSoundRevealed = gs.game.revealed;
-    if(state.role === 'tv' || state.local) playBing();
+    if(state.role !== 'tv' && !state.local) return;
+    const item = gs.game.sequence[gs.game.revealed - 1];
+    if(state.settings.bing) playBing();
+    if(state.settings.voice && item) setTimeout(()=> speak(callWords(item)), state.settings.bing ? 250 : 0);
   }
 }
 
@@ -849,14 +965,24 @@ function handleGuestMessage(msg){
   if(msg.type === 'vote'){
     if(gstate.game.status === 'playing') return;
     if(msg.kind !== 'mode' && msg.kind !== 'pace') return;
+    if(msg.kind === 'pace' && gstate.paceOverride) return;
     gstate.votes[msg.kind][name] = msg.value;
     broadcastState();
   } else if(msg.type === 'startRace'){
     if(gstate.game.status !== 'playing') actuallyStartRace();
+  } else if(msg.type === 'progress'){
+    if(gstate.game.status === 'playing' && typeof msg.need === 'number'){
+      gstate.need[name] = msg.need;
+      broadcastState();
+    }
   } else if(msg.type === 'claim'){
     if(gstate.game.status === 'playing' && !gstate.winner.name){
-      gstate.winner = { name, wonAt: now };
-      if(state.hostTimer) clearTimeout(state.hostTimer);
+      if(validateClaim(msg.card, msg.marked, gstate.game.mode)){
+        gstate.winner = { name, wonAt: now };
+        if(state.hostTimer) clearTimeout(state.hostTimer);
+      } else {
+        gstate.falseCall = { name, at: now };
+      }
       broadcastState();
     }
   } else if(msg.type === 'playAgain'){
@@ -877,6 +1003,7 @@ function tvError(msg){
 
 function openTvRoom(){
   initAudio();
+  unlockSpeech();
   $('tv-error').textContent = '';
   $('tv-open').disabled = true;
   $('tv-open').textContent = 'Opening…';
@@ -936,7 +1063,9 @@ async function tryTvCode(attempt){
     try{ client.publish(t.state, '', { qos:0, retain:true }); }catch(e){}
   });
   setupTvLobby(code);
+  $('tv-menu-btn').classList.remove('hidden');
   broadcastState();
+  if(state.settings.voice) speak('Room open. Join with the code ' + code.split('').join(', ') + '.');
 }
 
 function setupTvLobby(code){
@@ -984,6 +1113,50 @@ function voteRows(map, keys, labels){
   return keys.map(k=>`<div class="tv-vote-row"><span>${labels[k]}</span><b>${t[k]}</b></div>`).join('');
 }
 
+function renderWhosClose(gs){
+  const rows = gs.roster.map(n=> ({ n, need: (gs.need && typeof gs.need[n] === 'number') ? gs.need[n] : null }));
+  rows.sort((a,b)=> (a.need === null ? 99 : a.need) - (b.need === null ? 99 : b.need));
+  $('tv-close').innerHTML = rows.slice(0,6).map(r=>{
+    let label = 'getting started';
+    if(r.need === 0) label = 'has bingo!';
+    else if(r.need === 1) label = 'needs 1!';
+    else if(r.need !== null) label = 'needs ' + r.need;
+    const hot = r.need !== null && r.need <= 1;
+    return '<div class="tv-close-row' + (hot ? ' hot' : '') + '"><span>' + escapeHtml(r.n) + '</span><span class="need">' + label + '</span></div>';
+  }).join('');
+}
+
+function renderMenu(){
+  const cur = gstate.paceOverride || 'votes';
+  document.querySelectorAll('#menu-speed button').forEach(b=> b.classList.toggle('on', b.dataset.speed === cur));
+  document.querySelectorAll('#menu-voice button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.voice));
+  document.querySelectorAll('#menu-bing button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.bing));
+}
+
+function openMenu(){ renderMenu(); $('tv-menu').classList.remove('hidden'); $('tv-menu-close').focus(); }
+function closeMenu(){ $('tv-menu').classList.add('hidden'); $('tv-menu-btn').focus(); }
+
+function lastPaceKey(){
+  return gstate.paceOverride || (gstate.game && gstate.game.paceKey) || 'standard';
+}
+
+function renderNextSpeed(){
+  const base = (gstate.game && gstate.game.paceKey) || 'standard';
+  const next = lastPaceKey();
+  const step = PACE_KEYS.indexOf(next) - PACE_KEYS.indexOf(base);
+  document.querySelectorAll('#ns-seg button').forEach(b=> b.classList.toggle('on', Number(b.dataset.step) === Math.sign(step) && (step !== 0 || !!gstate.paceOverride || b.dataset.step === '0')));
+  $('ns-now').textContent = 'Next round: ' + PACE[next].label + (next === base ? ' (same as this round)' : '');
+}
+
+function pickNextSpeed(step){
+  const base = (gstate.game && gstate.game.paceKey) || 'standard';
+  const i = Math.max(0, Math.min(PACE_KEYS.length - 1, PACE_KEYS.indexOf(base) + step));
+  gstate.paceOverride = PACE_KEYS[i];
+  if(state.local) state.myPace = null;
+  broadcastState();
+  renderNextSpeed();
+}
+
 function renderTV(gs){
   if(!state.netReady) return;
   const n = gs.roster.length;
@@ -995,9 +1168,12 @@ function renderTV(gs){
     : '<span class="tv-empty">Waiting for players to join…</span>';
 
   const modeLabels = {line:'Sprint line', marathon:'Marathon', double:'Double dash'};
-  const paceLabels = {leisurely:'Leisurely', standard:'Standard', blazing:'Blazing'};
-  $('tv-votes-mode').innerHTML = voteRows(gs.votes.mode, ['line','marathon','double'], modeLabels);
-  $('tv-votes-pace').innerHTML = voteRows(gs.votes.pace, ['leisurely','standard','blazing'], paceLabels);
+  const paceLabels = {}; PACE_KEYS.forEach(k=> paceLabels[k] = PACE[k].label);
+  $('tv-votes-mode').innerHTML = voteRows(gs.votes.mode, MODE_KEYS, modeLabels);
+  $('tv-votes-pace').innerHTML = gs.paceOverride
+    ? '<div class="tv-vote-row"><span>Set in the Menu</span><b>' + PACE[gs.paceOverride].label + '</b></div>'
+    : voteRows(gs.votes.pace, PACE_KEYS, paceLabels);
+  renderMenu();
   $('tv-start').disabled = n === 0;
   $('tv-start').textContent = n === 0 ? 'Waiting for players' : 'Start the race';
 
@@ -1014,17 +1190,32 @@ function renderTV(gs){
     document.querySelectorAll('#tv-board .n').forEach(el=> el.classList.remove('on','latest'));
     revealed.forEach(it=>{ const el = $('b-'+it.col+it.num); if(el) el.classList.add('on'); });
     if(last){ const el = $('b-'+last.col+last.num); if(el) el.classList.add('latest'); }
+    renderWhosClose(gs);
     maybeBing(gs);
   } else {
     showTV('tv-lobby');
     $('tv-banner').textContent = '';
   }
 
+  if(gs.falseCall && gs.falseCall.at !== state.lastFalseAt){
+    state.lastFalseAt = gs.falseCall.at;
+    const toast = $('tv-toast');
+    toast.textContent = gs.falseCall.name + ' called bingo too early! Keep going.';
+    toast.classList.remove('hidden');
+    clearTimeout(state.toastTimer);
+    state.toastTimer = setTimeout(()=> toast.classList.add('hidden'), 4000);
+    if(state.settings.voice) speak(gs.falseCall.name + ' called bingo too early!');
+  }
+
   if(gs.winner && gs.winner.name){
+    const fresh = $('winner-overlay').classList.contains('hidden');
     $('winner-name').textContent = gs.winner.name;
     document.querySelector('.winner-card p').textContent = 'crosses the finish line first!';
     $('btn-again').textContent = 'New round';
+    $('next-speed').classList.remove('hidden');
+    renderNextSpeed();
     $('winner-overlay').classList.remove('hidden');
+    if(fresh && state.settings.voice) setTimeout(()=> speak('Bingo! ' + gs.winner.name + ' wins!'), 400);
   } else {
     $('winner-overlay').classList.add('hidden');
   }
@@ -1105,6 +1296,7 @@ async function joinViaRelay(room){
 
 function startPractice(){
   initAudio();
+  unlockSpeech();
   state.local = true;
   state.isHost = true;
   state.netReady = true;
@@ -1154,22 +1346,25 @@ function tallyOf(map, keys){
 }
 
 function renderVotes(votes){
-  const modeTally = tallyOf(votes && votes.mode, ['line','marathon','double']);
-  const paceTally = tallyOf(votes && votes.pace, ['leisurely','standard','blazing']);
-  Object.keys(modeTally).forEach(m=>{
-    const el = document.getElementById('count-'+m);
-    if(el) el.textContent = modeTally[m] === 1 ? '1 vote' : modeTally[m] + ' votes';
-  });
-  Object.keys(paceTally).forEach(p=>{
-    const el = document.getElementById('count-'+p);
-    if(el) el.textContent = paceTally[p] === 1 ? '1 vote' : paceTally[p] + ' votes';
-  });
+  const modeTally = tallyOf(votes && votes.mode, MODE_KEYS);
+  const paceTally = tallyOf(votes && votes.pace, PACE_KEYS);
+  MODE_KEYS.forEach(m=>{ const el = $('count-'+m); if(el) el.textContent = modeTally[m] === 1 ? '1 vote' : modeTally[m] + ' votes'; });
+  PACE_KEYS.forEach(p=>{ const el = $('count-'+p); if(el) el.textContent = paceTally[p] === 1 ? '1 vote' : paceTally[p] + ' votes'; });
   document.querySelectorAll('.vote-opt[data-mode]').forEach(el=>{
     el.classList.toggle('picked', el.dataset.mode === state.myVote);
+    el.setAttribute('aria-pressed', el.dataset.mode === state.myVote ? 'true' : 'false');
   });
+  const locked = !!gstate.paceOverride && !state.local;
   document.querySelectorAll('.vote-opt[data-pace]').forEach(el=>{
-    el.classList.toggle('picked', el.dataset.pace === state.myPace);
+    const on = locked ? el.dataset.pace === gstate.paceOverride : el.dataset.pace === state.myPace;
+    el.classList.toggle('picked', on);
+    el.setAttribute('aria-pressed', on ? 'true' : 'false');
+    el.disabled = locked;
   });
+  $('help-mode').textContent = state.myVote ? MODE_DESC[state.myVote] : 'Tap a race to vote. Ties go to Sprint line.';
+  $('help-pace').textContent = locked
+    ? 'Speed set on the TV: ' + PACE[gstate.paceOverride].label + '.'
+    : (state.myPace ? PACE_DESC[state.myPace] : 'Tap a speed to vote. Ties go to Standard.');
 }
 
 function renderGrid(){
@@ -1224,6 +1419,7 @@ function onCellClick(e){
   const idx = Number(cell.dataset.row)*5 + Number(cell.dataset.col);
   state.marked[idx] = !state.marked[idx];
   refreshCellStates();
+  sendProgress();
 }
 
 function updateCallDisplay(){
@@ -1262,6 +1458,7 @@ function newRoundLocal(){
   state.myPace = null;
   state.calledLapLead = false;
   state.wonAlready = false;
+  state.lastNeedSent = null;
   $('winner-overlay').classList.add('hidden');
 }
 
@@ -1294,6 +1491,12 @@ function applyState(gs){
     $('mode-banner').textContent = (gs.game.practice ? 'Practice run · ' : '') + md.label + ': win with ' + md.need + ' · ' + pc.label + ' pace';
     updateCallDisplay();
     refreshCellStates();
+    if(state.lastNeedSent === null) sendProgress(true);
+  }
+
+  if(gs.falseCall && gs.falseCall.at !== state.lastFalseAt){
+    state.lastFalseAt = gs.falseCall.at;
+    if(gs.falseCall.name === state.name) flashStatus("The TV checked your card: not a bingo yet. Keep going!");
   }
 
   const winner = gs.winner;
@@ -1303,6 +1506,8 @@ function applyState(gs){
     $('winner-name').textContent = practice ? 'Nice practice run!' : (winner.name === state.name ? `You (${winner.name})` : winner.name);
     document.querySelector('.winner-card p').textContent = practice ? 'Card cleared. Go again whenever you like.' : 'crosses the finish line first!';
     $('btn-again').textContent = state.local ? 'Race again' : 'Back to the lobby';
+    $('next-speed').classList.toggle('hidden', !state.local);
+    renderNextSpeed();
     $('winner-overlay').classList.remove('hidden');
   }
   if((!winner || !winner.name) && state.wonAlready){
@@ -1316,6 +1521,7 @@ function applyState(gs){
 function castVote(kind, value){
   if(kind === 'mode') state.myVote = value;
   if(kind === 'pace') state.myPace = value;
+  if(kind === 'pace' && state.local) gstate.paceOverride = null;
   if(state.isHost){
     gstate.votes[kind][state.name] = value;
     broadcastState();
@@ -1333,48 +1539,81 @@ function tallyWinnerMode(votes){
 }
 
 function tallyWinnerPace(votes){
-  const tally = tallyOf(votes && votes.pace, ['leisurely','standard','blazing']);
+  const tally = tallyOf(votes && votes.pace, PACE_KEYS);
   let best = 'standard';
-  ['leisurely','blazing'].forEach(p=>{ if(tally[p] > tally[best]) best = p; });
+  PACE_KEYS.forEach(p=>{ if(tally[p] > tally[best]) best = p; });
   return best;
 }
 
-function countLines(){
-  const m = (r,c)=> (r===2&&c===2) ? true : !!state.marked[r*5+c];
-  let lines = 0;
-  for(let r=0;r<5;r++){ let f=true; for(let c=0;c<5;c++) if(!m(r,c)) f=false; if(f) lines++; }
-  for(let c=0;c<5;c++){ let f=true; for(let r=0;r<5;r++) if(!m(r,c)) f=false; if(f) lines++; }
-  let d1=true,d2=true;
-  for(let i=0;i<5;i++){ if(!m(i,i)) d1=false; if(!m(i,4-i)) d2=false; }
-  if(d1) lines++;
-  if(d2) lines++;
-  return lines;
+function lineNeeds(marks){
+  return LINES.map(l=> l.filter(i=> i !== 12 && !marks[i]).length);
 }
 
-function isBlackout(){
-  for(let i=0;i<25;i++){ if(i===12) continue; if(!state.marked[i]) return false; }
-  return true;
+function countLines(marks){
+  return lineNeeds(marks || state.marked).filter(n=> n === 0).length;
+}
+
+// How many more numbers this card needs to win in the given race type.
+function computeNeed(marks, mode){
+  if(mode === 'marathon'){
+    let n = 0; for(let i=0;i<25;i++) if(i !== 12 && !marks[i]) n++;
+    return n;
+  }
+  const needs = lineNeeds(marks);
+  if(mode === 'double'){
+    let best = 99;
+    for(let a=0;a<LINES.length;a++) for(let b=a+1;b<LINES.length;b++){
+      const u = new Set(LINES[a].concat(LINES[b]).filter(i=> i !== 12 && !marks[i]));
+      if(u.size < best) best = u.size;
+    }
+    return best;
+  }
+  return Math.min.apply(null, needs);
+}
+
+// Host side: trust only marks on numbers that have actually been called.
+function validateClaim(card, marked, mode){
+  if(!Array.isArray(card) || !Array.isArray(marked)) return false;
+  const called = calledSet();
+  const ok = new Array(25).fill(false);
+  for(let r=0;r<5;r++) for(let c=0;c<5;c++){
+    const i = r*5+c;
+    if(i === 12){ ok[i] = true; continue; }
+    const v = card[c] && card[c][r];
+    ok[i] = !!marked[i] && called.has(LETTERS[c] + v);
+  }
+  return computeNeed(ok, mode) === 0;
+}
+
+function sendProgress(force){
+  if(!gstate.game || gstate.game.status !== 'playing' || !state.marked) return;
+  const need = computeNeed(state.marked, currentMode());
+  if(!force && need === state.lastNeedSent) return;
+  state.lastNeedSent = need;
+  if(state.isHost){
+    gstate.need[state.name] = need;
+    broadcastState();
+  } else {
+    sendToHost({ type:'progress', need });
+  }
 }
 
 function tryClaim(){
   const mode = currentMode();
-  if(mode === 'marathon'){
-    if(!isBlackout()){
+  const need = computeNeed(state.marked, mode);
+  if(need > 0){
+    if(mode === 'marathon'){
       if(countLines() >= 1 && !state.calledLapLead){
         state.calledLapLead = true;
         flashStatus("Lap lead! Now fill the whole card to win.");
       } else {
-        flashStatus("Marathon needs the full card. Keep marking!");
+        flashStatus("Marathon needs the full card. " + need + " to go!");
       }
-      return;
-    }
-  } else if(mode === 'double'){
-    if(countLines() < 2){
+    } else if(mode === 'double'){
       flashStatus(countLines() === 1 ? "One line down, one to go!" : "Double dash needs two lines.");
-      return;
+    } else {
+      flashStatus("No finished line yet. You need " + need + " more.");
     }
-  } else if(countLines() < 1){
-    flashStatus("No completed line yet. Keep marking!");
     return;
   }
   if(gstate.winner && gstate.winner.name){
@@ -1382,11 +1621,13 @@ function tryClaim(){
     return;
   }
   if(state.isHost){
+    if(!validateClaim(state.card, state.marked, mode)){ flashStatus("Not a bingo yet. Keep going!"); return; }
     gstate.winner = { name: state.name, wonAt: Date.now() };
     if(state.hostTimer) clearTimeout(state.hostTimer);
     broadcastState();
   } else {
-    sendToHost({ type:'claim', name: state.name });
+    sendToHost({ type:'claim', card: state.card, marked: state.marked });
+    flashStatus("Bingo sent! The TV is checking your card…");
   }
 }
 
@@ -1399,7 +1640,7 @@ function startRace(){
 function actuallyStartRace(){
   if(gstate.roster.length === 0) return;
   const mode = tallyWinnerMode(gstate.votes);
-  const paceKey = tallyWinnerPace(gstate.votes);
+  const paceKey = gstate.paceOverride || tallyWinnerPace(gstate.votes);
   const pace = PACE[paceKey] || PACE.standard;
   gstate.game = {
     status:'playing', mode, paceKey,
@@ -1409,6 +1650,8 @@ function actuallyStartRace(){
     startedAt: Date.now()
   };
   gstate.winner = {};
+  gstate.need = {};
+  gstate.falseCall = null;
   broadcastState();
   hostLoop();
 }
@@ -1433,6 +1676,22 @@ function resetForNewRound(){
   gstate.votes = { mode: {}, pace: {} };
   gstate.game = { status:'waiting', mode:'line', paceKey:'standard', practice:false, sequence:[], revealed:0, speedMs:2600 };
   gstate.winner = {};
+  gstate.need = {};
+  gstate.falseCall = null;
+}
+
+// Change the call speed. Mid-race it takes effect on the next call.
+function setPace(key){
+  gstate.paceOverride = key;
+  if(key && gstate.game && gstate.game.status === 'playing' && !(gstate.winner && gstate.winner.name)){
+    const pc = PACE[key];
+    gstate.game.paceKey = key;
+    gstate.game.paceFloor = pc.floor;
+    gstate.game.paceDec = pc.dec;
+    gstate.game.speedMs = Math.max(pc.floor, pc.start - pc.dec * Math.max(0, (gstate.game.revealed || 1) - 1));
+    hostLoop();
+  }
+  broadcastState();
 }
 
 function playAgain(){
@@ -1459,6 +1718,23 @@ $('btn-start').addEventListener('click', startRace);
 $('btn-claim').addEventListener('click', tryClaim);
 $('btn-again').addEventListener('click', playAgain);
 $('tv-open').addEventListener('click', openTvRoom);
+$('tv-menu-btn').addEventListener('click', openMenu);
+$('tv-menu-close').addEventListener('click', closeMenu);
+$('tv-menu').addEventListener('click', (e)=>{ if(e.target === $('tv-menu')) closeMenu(); });
+document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !$('tv-menu').classList.contains('hidden')) closeMenu(); });
+document.querySelectorAll('#menu-speed button').forEach(b=> b.addEventListener('click', ()=>{
+  setPace(b.dataset.speed === 'votes' ? null : b.dataset.speed);
+  renderMenu();
+}));
+document.querySelectorAll('#menu-voice button').forEach(b=> b.addEventListener('click', ()=>{
+  state.settings.voice = b.dataset.v === 'on'; saveSettings(); renderMenu();
+  if(state.settings.voice) speak('Calls will be read aloud.'); else if('speechSynthesis' in window) window.speechSynthesis.cancel();
+}));
+document.querySelectorAll('#menu-bing button').forEach(b=> b.addEventListener('click', ()=>{
+  state.settings.bing = b.dataset.v === 'on'; saveSettings(); renderMenu();
+  if(state.settings.bing) playBing();
+}));
+document.querySelectorAll('#ns-seg button').forEach(b=> b.addEventListener('click', ()=> pickNextSpeed(Number(b.dataset.step))));
 $('tv-start').addEventListener('click', ()=> actuallyStartRace());
 $('in-room').addEventListener('input', (e)=>{
   e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
