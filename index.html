@@ -298,6 +298,82 @@ window.addEventListener('error', function(e){
   .grid-head div, .winner-card h2{ -webkit-text-stroke:0 !important; }
   .winner-overlay{ background: rgba(59,66,82,.78) !important; }
 </style>
+<script>
+(function(){
+  var urls = [
+    'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
+    'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js'
+  ];
+  var i = 0;
+  function tryNext(){
+    if(i >= urls.length) return;
+    var el = document.createElement('script');
+    el.src = urls[i++];
+    el.crossOrigin = 'anonymous';
+    el.onerror = tryNext;
+    document.head.appendChild(el);
+  }
+  tryNext();
+})();
+</script>
+<style>
+  .join-alt{ margin-top:22px; padding-top:18px; border-top:2px dashed #e3ddd0; text-align:center; }
+  .join-alt .btn{ margin-top:0; }
+  .tv-link{ display:inline-block; margin-top:14px; color:#5d6677; font-weight:900; }
+  .join-error{ color:#8a4a41; font-size:.9rem; margin:10px 0 0; text-align:center; font-weight:700; }
+  .code-input{ text-transform:uppercase; letter-spacing:.3em; font-size:1.5rem !important; text-align:center; }
+
+  .tv{ display:none; }
+  body.tv-mode{ display:block !important; padding:3vh 3vw !important; min-height:100vh; }
+  body.tv-mode .app{ display:none !important; }
+  body.tv-mode .tv{ display:block; }
+  .tv-head{ display:flex; align-items:baseline; justify-content:space-between; gap:2vw; margin-bottom:3vh; }
+  .tv-head h1{ font-size:clamp(28px,3.6vw,68px); color:var(--ink); line-height:1; }
+  .tv-head h1 span{ color:var(--red); }
+  .tv-banner{ font-size:clamp(14px,1.5vw,28px); font-weight:900; color:#5d6677; text-align:right; }
+  .tv-panel{ background:var(--cream); border:2px solid #d9d3c5; border-radius:28px; box-shadow:0 6px 20px rgba(59,66,82,.10); padding:4vh 3vw; color:var(--ink); }
+  .tv-center{ text-align:center; max-width:900px; margin:8vh auto 0; }
+  .tv-center h2{ font-size:clamp(26px,3vw,54px); color:var(--ink); }
+  .tv-center p{ font-size:clamp(16px,1.6vw,28px); color:#5d6677; font-weight:700; line-height:1.5; }
+  .tv-center .btn{ max-width:420px; font-size:clamp(18px,1.8vw,32px); }
+  .tv-error{ color:#8a4a41 !important; }
+  .tv-lobby{ display:grid; grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); gap:3vw; align-items:start; }
+  .tv-join{ text-align:center; }
+  .tv-step{ font-size:clamp(16px,1.7vw,32px); color:#5d6677; font-weight:900; }
+  .tv-step.small{ font-size:clamp(14px,1.3vw,24px); margin-top:1vh; }
+  .tv-url{ font-size:clamp(18px,2vw,40px); font-weight:900; color:var(--ink); word-break:break-all; margin:1vh 0 3vh; }
+  .tv-code{ font-family:'Luckiest Guy',cursive; font-size:clamp(64px,10vw,210px); letter-spacing:.14em; color:var(--red); line-height:1; margin:1.5vh 0 2vh; }
+  .tv-qr{ display:inline-block; padding:12px; background:#fffdf8; border-radius:16px; border:2px solid #e3ddd0; }
+  .tv-qr img, .tv-qr canvas{ display:block; width:clamp(140px,13vw,240px) !important; height:auto !important; }
+  .tv-side h2{ font-size:clamp(22px,2.3vw,42px); color:var(--ink); margin-bottom:2vh; }
+  .tv-count{ color:#8a93a3; font-size:.7em; }
+  .tv-players{ display:flex; flex-wrap:wrap; gap:12px; min-height:60px; margin-bottom:3vh; }
+  .tv-chip{ background:#fffdf8; border:2px solid #d9d3c5; border-radius:999px; padding:8px 20px; font-weight:900; font-size:clamp(16px,1.6vw,30px); }
+  .tv-empty{ color:#8a93a3; font-weight:700; font-size:clamp(16px,1.5vw,28px); }
+  .tv-votes{ display:grid; grid-template-columns:1fr 1fr; gap:2vw; margin-bottom:2vh; }
+  .tv-votes h3{ font-size:clamp(16px,1.6vw,30px); color:var(--red); margin-bottom:1vh; }
+  .tv-vote-row{ display:flex; justify-content:space-between; font-weight:700; font-size:clamp(14px,1.4vw,26px); padding:6px 0; border-bottom:1px solid #e3ddd0; }
+  .tv-side .btn{ font-size:clamp(18px,1.7vw,32px); }
+  .tv-side .btn:disabled{ opacity:.55; }
+  .tv-hint{ color:#8a93a3; font-weight:700; font-size:clamp(13px,1.2vw,22px); text-align:center; margin-top:2vh; }
+  .tv-game{ display:grid; grid-template-columns:minmax(0,.85fr) minmax(0,1.6fr); gap:3vw; align-items:start; }
+  .tv-callbox{ background:#3b4252; border-radius:28px; text-align:center; padding:4vh 1vw; }
+  .tv-call{ font-family:'Luckiest Guy',cursive; font-size:clamp(80px,12vw,260px); line-height:1; color:var(--yellow); }
+  .tv-flavor{ color:#e9e4d8; font-weight:700; font-size:clamp(16px,1.6vw,30px); margin-top:2vh; min-height:1.3em; }
+  .tv-recent-label{ margin:3vh 0 1vh; font-weight:900; color:#5d6677; font-size:clamp(14px,1.3vw,24px); }
+  .tv-recent{ display:flex; gap:10px; flex-wrap:wrap; }
+  .tv-recent span{ background:#fffdf8; border:2px solid #d9d3c5; border-radius:12px; padding:6px 14px; font-weight:900; font-size:clamp(16px,1.7vw,32px); color:var(--ink); }
+  .tv-meta{ margin-top:3vh; display:flex; justify-content:space-between; color:#5d6677; font-weight:900; font-size:clamp(14px,1.4vw,26px); }
+  .tv-board{ display:grid; grid-template-columns:repeat(16,minmax(0,1fr)); gap:.45vw; padding:3vh 2vw; }
+  .tv-board .lt{ font-family:'Luckiest Guy',cursive; color:var(--red); font-size:clamp(18px,2.4vw,50px); display:flex; align-items:center; justify-content:center; }
+  .tv-board .n{ aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:10px; background:#fffdf8; border:2px solid #e8e2d6; color:#c4beb1; font-weight:900; font-size:clamp(11px,1.35vw,28px); }
+  .tv-board .n.on{ background:var(--yellow); border-color:var(--yellow-dark); color:var(--ink); }
+  .tv-board .n.latest{ background:var(--red); border-color:var(--red-dark); color:#fffdf8; }
+  body.tv-mode .winner-card{ max-width:640px; padding:44px; }
+  body.tv-mode .winner-card .boomer{ width:240px; height:300px; }
+  body.tv-mode .winner-card h2{ font-size:clamp(36px,4vw,72px); }
+  body.tv-mode .winner-card p{ font-size:clamp(18px,1.8vw,32px); }
+</style>
 </head>
 <body>
 <div id="ringpulse"></div>
@@ -324,11 +400,15 @@ window.addEventListener('error', function(e){
   <!-- JOIN SCREEN -->
   <div id="screen-join" class="card-panel">
     <label for="in-room">Room code</label>
-    <input id="in-room" type="text" placeholder="e.g. TRACK1" maxlength="12">
+    <input id="in-room" class="code-input" type="text" placeholder="ABCD" maxlength="4" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" inputmode="text">
     <label for="in-name">Your name</label>
-    <input id="in-name" type="text" placeholder="e.g. Zoomies" maxlength="16">
+    <input id="in-name" type="text" placeholder="Zoomies" maxlength="14" autocomplete="nickname">
     <button class="btn" id="btn-join">Join the Kennel 🐕</button>
-    <p class="hint">Send this page (the downloaded file, or wherever you're hosting it) to your friends. Everyone enters the <em>same</em> room code — no account or sign-in needed.</p>
+    <p class="hint">Enter the 4-letter code shown on the TV.</p>
+    <div class="join-alt">
+      <button class="btn secondary" id="btn-practice">Practice on my own</button>
+      <a class="tv-link" href="tv.html">Hosting? Open the TV screen</a>
+    </div>
   </div>
 
   <!-- LOBBY SCREEN -->
@@ -400,6 +480,57 @@ window.addEventListener('error', function(e){
     </div>
     <div class="status-msg" id="game-status"></div>
   </div>
+</div>
+
+<!-- TV SCREEN -->
+<div class="tv" id="tv">
+  <header class="tv-head">
+    <h1>Greyhound <span>Speed Bingo</span></h1>
+    <div class="tv-banner" id="tv-banner"></div>
+  </header>
+
+  <section id="tv-setup" class="tv-panel tv-center">
+    <h2>Put this screen on the TV</h2>
+    <p>Players join on their phones with a 4-letter code. This screen shows the calls, the board and who wins.</p>
+    <button class="btn" id="tv-open">Open a room</button>
+    <p class="tv-error" id="tv-error"></p>
+  </section>
+
+  <section id="tv-lobby" class="tv-lobby hidden">
+    <div class="tv-panel tv-join">
+      <div class="tv-step">On your phone, go to</div>
+      <div class="tv-url" id="tv-url"></div>
+      <div class="tv-step">and enter the code</div>
+      <div class="tv-code" id="tv-code">----</div>
+      <div class="tv-qr-wrap hidden" id="tv-qr-wrap">
+        <div class="tv-qr" id="tv-qr"></div>
+        <div class="tv-step small">or scan to join</div>
+      </div>
+    </div>
+    <div class="tv-panel tv-side">
+      <h2>In the kennel <span class="tv-count" id="tv-count"></span></h2>
+      <div class="tv-players" id="tv-players"></div>
+      <div class="tv-votes">
+        <div><h3>Race</h3><div id="tv-votes-mode"></div></div>
+        <div><h3>Pace</h3><div id="tv-votes-pace"></div></div>
+      </div>
+      <button class="btn" id="tv-start">Start the race</button>
+      <p class="tv-hint">Players vote on their phones. Start here, or anyone can start from their phone.</p>
+    </div>
+  </section>
+
+  <section id="tv-game" class="tv-game hidden">
+    <div class="tv-call-col">
+      <div class="tv-callbox">
+        <div class="tv-call" id="tv-call">—</div>
+        <div class="tv-flavor" id="tv-flavor"></div>
+      </div>
+      <div class="tv-recent-label">Previous calls</div>
+      <div class="tv-recent" id="tv-recent"></div>
+      <div class="tv-meta"><span>Room <b id="tv-code2"></b></span><span id="tv-count2"></span></div>
+    </div>
+    <div class="tv-panel tv-board" id="tv-board"></div>
+  </section>
 </div>
 
 <div id="winner-overlay" class="winner-overlay hidden">
@@ -475,29 +606,35 @@ const PACE = {
   standard:  {label:'Standard',  start:2600, floor:700,  dec:55},
   blazing:   {label:'Blazing',   start:1800, floor:450,  dec:70}
 };
+const CODE_CHARS = 'BCDFGHJKLMNPQRSTVWXZ';
+const params = new URLSearchParams(location.search);
+const IS_TV = params.has('tv');
 
 let state = {
+  role: IS_TV ? 'tv' : 'phone',
+  local: false,
   room: '', name: '',
   card: null, marked: null,
   isHost: false,
   peer: null, conns: [], hostConn: null,
   hostTimer: null, connectWatchdog: null,
   wonAlready: false,
-  myVote: null,
-  myPace: null,
+  myVote: null, myPace: null,
   calledLapLead: false,
   netReady: false,
   audioCtx: null,
-  lastSoundEpoch: 0,
-  lastSoundRevealed: 0,
+  lastSoundEpoch: 0, lastSoundRevealed: 0,
+  round: null,
+  tvBoardBuilt: false,
 };
 
-// Authoritative game state. On the host this is the live source of truth.
-// On a guest it's just the last copy broadcast by the host.
+// Authoritative game state. On the host (TV or a solo practice phone) this is the
+// source of truth. On a phone in a TV room it's the last copy the TV broadcast.
 let gstate = {
+  round: 1,
   roster: [],
   votes: { mode: {}, pace: {} },
-  game: { status: 'waiting', mode: 'line', practice: false, sequence: [], revealed: 0, speedMs: 2600 },
+  game: { status: 'waiting', mode: 'line', paceKey:'standard', practice: false, sequence: [], revealed: 0, speedMs: 2600 },
   winner: {}
 };
 
@@ -512,8 +649,14 @@ function show(screenId){
   if(strip) strip.classList.toggle('hidden', screenId !== 'screen-join');
 }
 
+function showTV(sectionId){
+  ['tv-setup','tv-lobby','tv-game'].forEach(id=>{
+    $(id).classList.toggle('hidden', id!==sectionId);
+  });
+}
+
 function escapeHtml(s){
-  return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function flashJoinError(msg){
@@ -521,11 +664,8 @@ function flashJoinError(msg){
   if(!el){
     el = document.createElement('p');
     el.id='join-error';
-    el.style.color = '#9c2e22';
-    el.style.fontSize='0.82rem';
-    el.style.marginTop='8px';
-    el.style.textAlign='center';
-    $('screen-join').appendChild(el);
+    el.className='join-error';
+    $('btn-join').insertAdjacentElement('afterend', el);
   }
   el.textContent = msg;
 }
@@ -536,6 +676,16 @@ function flashStatus(msg){
 }
 
 function peerRoomId(room){ return 'ghbingo-room-' + room.toUpperCase().replace(/[^A-Z0-9]/g,''); }
+
+function randomCode(){
+  let c = '';
+  for(let i=0;i<4;i++) c += CODE_CHARS[Math.floor(Math.random()*CODE_CHARS.length)];
+  return c;
+}
+
+function joinBaseUrl(){
+  return location.origin + location.pathname.replace(/(index|tv)\.html$/,'');
+}
 
 function shuffledSequence(){
   const items = [];
@@ -552,7 +702,7 @@ function shuffledSequence(){
 }
 
 function generateCard(){
-  const cols = RANGES.map(([lo,hi])=>{
+  return RANGES.map(([lo,hi])=>{
     const pool=[];
     for(let n=lo;n<=hi;n++) pool.push(n);
     for(let i=pool.length-1;i>0;i--){
@@ -560,139 +710,10 @@ function generateCard(){
       [pool[i],pool[j]]=[pool[j],pool[i]];
     }
     return pool.slice(0,5);
-  });
-  return cols; // card[col][row]
+  }); // card[col][row]
 }
 
-/* ---------------- networking ---------------- */
-
-function broadcastState(){
-  const payload = JSON.stringify({ type:'state', gstate });
-  state.conns.forEach(c=>{ if(c.open) c.send(payload); });
-  applyState(gstate);
-}
-
-function sendToHost(msg){
-  if(state.hostConn && state.hostConn.open){
-    state.hostConn.send(JSON.stringify(msg));
-  }
-}
-
-function handleGuestMessage(conn, msg){
-  if(msg.type === 'join'){
-    if(!gstate.roster.includes(msg.name)) gstate.roster.push(msg.name);
-    conn._playerName = msg.name;
-    broadcastState();
-  } else if(msg.type === 'vote'){
-    if(!gstate.votes[msg.kind]) gstate.votes[msg.kind] = {};
-    gstate.votes[msg.kind][msg.name] = msg.value;
-    broadcastState();
-  } else if(msg.type === 'startRace'){
-    if(gstate.game.status !== 'playing') actuallyStartRace();
-  } else if(msg.type === 'claim'){
-    if(!gstate.winner.name){
-      gstate.winner = { name: msg.name, wonAt: Date.now() };
-      if(state.hostTimer) clearTimeout(state.hostTimer);
-      broadcastState();
-    }
-  } else if(msg.type === 'playAgain'){
-    resetForNewRound();
-    broadcastState();
-  }
-}
-
-function setupHostPeer(room){
-  state.isHost = true;
-  gstate.roster = [state.name];
-  gstate.votes = { mode: {}, pace: {} };
-  try{
-    state.peer = new Peer(peerRoomId(room));
-  }catch(err){
-    resetJoinButton();
-    flashJoinError("Couldn't start networking (" + (err && err.message ? err.message : err) + "). This browser or app may be blocking WebRTC — try opening the file directly in Safari or Chrome instead of an in-app browser.");
-    return;
-  }
-  state.peer.on('open', ()=>{
-    state.netReady = true;
-    enterLobby();
-  });
-  state.peer.on('connection', (conn)=>{
-    state.conns.push(conn);
-    conn.on('data', (raw)=>{
-      try{ handleGuestMessage(conn, JSON.parse(raw)); }catch(e){}
-    });
-    conn.on('close', ()=>{
-      state.conns = state.conns.filter(c=>c!==conn);
-      if(conn._playerName){
-        gstate.roster = gstate.roster.filter(n=>n!==conn._playerName);
-        broadcastState();
-      }
-    });
-    conn.on('open', ()=> broadcastState());
-  });
-  state.peer.on('error', (err)=>{
-    if(err.type === 'unavailable-id'){
-      setupGuestPeer(room);
-    } else {
-      resetJoinButton();
-      flashJoinError("Connection trouble (" + err.type + "). Try again, or check your network.");
-    }
-  });
-}
-
-function setupGuestPeer(room){
-  state.isHost = false;
-  try{
-    state.peer = new Peer();
-  }catch(err){
-    resetJoinButton();
-    flashJoinError("Couldn't start networking (" + (err && err.message ? err.message : err) + "). This browser or app may be blocking WebRTC — try opening the file directly in Safari or Chrome instead of an in-app browser.");
-    return;
-  }
-  state.peer.on('open', ()=>{
-    const conn = state.peer.connect(peerRoomId(room), { reliable: true });
-    state.hostConn = conn;
-    let opened = false;
-    conn.on('open', ()=>{
-      opened = true;
-      state.netReady = true;
-      sendToHost({ type:'join', name: state.name });
-      enterLobby();
-    });
-    conn.on('data', (raw)=>{
-      try{
-        const msg = JSON.parse(raw);
-        if(msg.type === 'state'){
-          gstate = msg.gstate;
-          applyState(gstate);
-        }
-      }catch(e){}
-    });
-    conn.on('close', ()=>{
-      if($('screen-game') && !$('screen-game').classList.contains('hidden')){
-        flashStatus("Lost connection to the host.");
-      }
-    });
-    setTimeout(()=>{
-      if(!opened){
-        resetJoinButton();
-        flashJoinError("Couldn't find anyone hosting that room code. Double-check it, or leave it blank to start fresh.");
-      }
-    }, 9000);
-  });
-  state.peer.on('error', (err)=>{
-    resetJoinButton();
-    flashJoinError("Connection trouble (" + err.type + "). Try again, or check your network.");
-  });
-}
-
-/* ---------------- join / lobby ---------------- */
-
-function resetJoinButton(){
-  clearTimeout(state.connectWatchdog);
-  $('btn-join').disabled = false;
-  $('btn-join').textContent = 'Join the Kennel 🐕';
-}
+/* ---------------- sound ---------------- */
 
 function initAudio(){
   if(state.audioCtx) return;
@@ -725,16 +746,255 @@ function playBing(){
   }catch(e){}
 }
 
+// One bing per newly called number. The TV makes the sound for the room;
+// phones only bing when practising alone, so a room of phones isn't a cacophony.
+function maybeBing(gs){
+  if(!gs.game || gs.game.status !== 'playing') return;
+  if(gs.game.startedAt !== state.lastSoundEpoch){
+    state.lastSoundEpoch = gs.game.startedAt;
+    state.lastSoundRevealed = 0;
+  }
+  if((gs.game.revealed || 0) > state.lastSoundRevealed){
+    state.lastSoundRevealed = gs.game.revealed;
+    if(state.role === 'tv' || state.local) playBing();
+  }
+}
+
+/* ---------------- networking (host side: TV or solo practice) ---------------- */
+
+function broadcastState(){
+  const payload = JSON.stringify({ type:'state', gstate });
+  state.conns.forEach(c=>{ if(c.open){ try{ c.send(payload); }catch(e){} } });
+  if(state.role === 'tv') renderTV(gstate); else applyState(gstate);
+}
+
+function sendToHost(msg){
+  if(state.hostConn && state.hostConn.open){
+    state.hostConn.send(JSON.stringify(msg));
+  }
+}
+
+function handleGuestMessage(conn, msg){
+  if(msg.type === 'join'){
+    const name = String(msg.name || 'Player').slice(0,14);
+    if(!gstate.roster.includes(name)) gstate.roster.push(name);
+    conn._playerName = name;
+    broadcastState();
+  } else if(msg.type === 'vote'){
+    if(gstate.game.status === 'playing') return;
+    if(msg.kind !== 'mode' && msg.kind !== 'pace') return;
+    gstate.votes[msg.kind][msg.name] = msg.value;
+    broadcastState();
+  } else if(msg.type === 'startRace'){
+    if(gstate.game.status !== 'playing') actuallyStartRace();
+  } else if(msg.type === 'claim'){
+    if(gstate.game.status === 'playing' && !gstate.winner.name){
+      gstate.winner = { name: msg.name, wonAt: Date.now() };
+      if(state.hostTimer) clearTimeout(state.hostTimer);
+      broadcastState();
+    }
+  } else if(msg.type === 'playAgain'){
+    if(gstate.winner && gstate.winner.name){
+      resetForNewRound();
+      broadcastState();
+    }
+  }
+}
+
+function wireHostPeer(){
+  state.peer.on('connection', (conn)=>{
+    state.conns.push(conn);
+    conn.on('data', (raw)=>{
+      try{ handleGuestMessage(conn, JSON.parse(raw)); }catch(e){}
+    });
+    conn.on('close', ()=>{
+      state.conns = state.conns.filter(c=>c!==conn);
+      const n = conn._playerName;
+      // Only drop the name if that player hasn't already reconnected on a new link.
+      if(n && !state.conns.some(c=>c._playerName===n && c.open)){
+        gstate.roster = gstate.roster.filter(x=>x!==n);
+        broadcastState();
+      }
+    });
+    conn.on('open', ()=> broadcastState());
+  });
+  state.peer.on('disconnected', ()=>{
+    try{ state.peer.reconnect(); }catch(e){}
+  });
+}
+
+/* ---------------- TV ---------------- */
+
+function tvError(msg){
+  $('tv-error').textContent = msg;
+  $('tv-open').disabled = false;
+  $('tv-open').textContent = 'Open a room';
+}
+
+function openTvRoom(){
+  initAudio();
+  $('tv-error').textContent = '';
+  $('tv-open').disabled = true;
+  $('tv-open').textContent = 'Opening…';
+  let waited = 0;
+  const wait = setInterval(()=>{
+    waited += 200;
+    if(peerLibReady()){
+      clearInterval(wait);
+      tryTvCode(0);
+    } else if(waited >= 8000){
+      clearInterval(wait);
+      tvError("Couldn't load the networking library. Check this device's internet connection and try again.");
+    }
+  }, 200);
+}
+
+function tryTvCode(attempt){
+  if(attempt >= 6){ tvError("Couldn't reserve a room code. Try again in a moment."); return; }
+  const code = randomCode();
+  let peer;
+  try{
+    peer = new Peer(peerRoomId(code));
+  }catch(err){
+    tvError("This browser blocked the connection (" + (err && err.message ? err.message : err) + "). Try Chrome or Safari.");
+    return;
+  }
+  const watchdog = setTimeout(()=>{
+    if(!state.netReady){
+      try{ peer.destroy(); }catch(e){}
+      tvError("Couldn't reach the game server. Check the internet connection, turn off any VPN, and try again.");
+    }
+  }, 12000);
+  peer.on('open', ()=>{
+    clearTimeout(watchdog);
+    state.peer = peer;
+    state.netReady = true;
+    state.isHost = true;
+    state.room = code;
+    gstate.roster = [];
+    gstate.round = 1;
+    wireHostPeer();
+    setupTvLobby(code);
+    broadcastState();
+  });
+  peer.on('error', (err)=>{
+    if(state.netReady) return; // later blips are handled by the reconnect logic
+    clearTimeout(watchdog);
+    try{ peer.destroy(); }catch(e){}
+    if(err.type === 'unavailable-id') tryTvCode(attempt+1);
+    else tvError("Connection trouble (" + err.type + "). Check the internet connection and try again.");
+  });
+}
+
+function setupTvLobby(code){
+  const base = joinBaseUrl();
+  $('tv-code').textContent = code;
+  $('tv-code2').textContent = code;
+  $('tv-url').textContent = base.replace(/^https?:\/\//,'').replace(/\/$/,'');
+  const qrBox = $('tv-qr');
+  qrBox.innerHTML = '';
+  const joinLink = base + '?room=' + code;
+  if(typeof QRCode !== 'undefined' && /^https?:/.test(base)){
+    try{
+      new QRCode(qrBox, { text: joinLink, width: 220, height: 220, colorDark:'#3b4252', colorLight:'#fffdf8', correctLevel: QRCode.CorrectLevel.M });
+      $('tv-qr-wrap').classList.remove('hidden');
+    }catch(e){ $('tv-qr-wrap').classList.add('hidden'); }
+  } else {
+    $('tv-qr-wrap').classList.add('hidden');
+  }
+  buildTvBoard();
+  showTV('tv-lobby');
+}
+
+function buildTvBoard(){
+  if(state.tvBoardBuilt) return;
+  const board = $('tv-board');
+  board.innerHTML = '';
+  LETTERS.forEach((L, c)=>{
+    const lt = document.createElement('div');
+    lt.className = 'lt';
+    lt.textContent = L;
+    board.appendChild(lt);
+    for(let n=RANGES[c][0]; n<=RANGES[c][1]; n++){
+      const cell = document.createElement('div');
+      cell.className = 'n';
+      cell.id = 'b-' + L + n;
+      cell.textContent = n;
+      board.appendChild(cell);
+    }
+  });
+  state.tvBoardBuilt = true;
+}
+
+function voteRows(map, keys, labels){
+  const t = tallyOf(map, keys);
+  return keys.map(k=>`<div class="tv-vote-row"><span>${labels[k]}</span><b>${t[k]}</b></div>`).join('');
+}
+
+function renderTV(gs){
+  if(!state.netReady) return;
+  const n = gs.roster.length;
+  const countText = n === 1 ? '1 player' : n + ' players';
+  $('tv-count').textContent = countText;
+  $('tv-count2').textContent = countText;
+  $('tv-players').innerHTML = n
+    ? gs.roster.map(p=>`<span class="tv-chip">${escapeHtml(p)}</span>`).join('')
+    : '<span class="tv-empty">Waiting for players to join…</span>';
+
+  const modeLabels = {line:'Sprint line', marathon:'Marathon', double:'Double dash'};
+  const paceLabels = {leisurely:'Leisurely', standard:'Standard', blazing:'Blazing'};
+  $('tv-votes-mode').innerHTML = voteRows(gs.votes.mode, ['line','marathon','double'], modeLabels);
+  $('tv-votes-pace').innerHTML = voteRows(gs.votes.pace, ['leisurely','standard','blazing'], paceLabels);
+  $('tv-start').disabled = n === 0;
+  $('tv-start').textContent = n === 0 ? 'Waiting for players' : 'Start the race';
+
+  if(gs.game.status === 'playing'){
+    showTV('tv-game');
+    const md = MODES[gs.game.mode] || MODES.line;
+    const pc = PACE[gs.game.paceKey] || PACE.standard;
+    $('tv-banner').textContent = md.label + ' · win with ' + md.need + ' · ' + pc.label + ' pace';
+    const revealed = gs.game.sequence.slice(0, gs.game.revealed || 0);
+    const last = revealed[revealed.length-1];
+    $('tv-call').textContent = last ? (last.col + last.num) : '—';
+    $('tv-flavor').textContent = last ? FLAVORS[(gs.game.revealed-1) % FLAVORS.length] : '';
+    $('tv-recent').innerHTML = revealed.slice(-6, -1).reverse().map(it=>`<span>${it.col}${it.num}</span>`).join('');
+    document.querySelectorAll('#tv-board .n').forEach(el=> el.classList.remove('on','latest'));
+    revealed.forEach(it=>{ const el = $('b-'+it.col+it.num); if(el) el.classList.add('on'); });
+    if(last){ const el = $('b-'+last.col+last.num); if(el) el.classList.add('latest'); }
+    maybeBing(gs);
+  } else {
+    showTV('tv-lobby');
+    $('tv-banner').textContent = '';
+  }
+
+  if(gs.winner && gs.winner.name){
+    $('winner-name').textContent = gs.winner.name;
+    document.querySelector('.winner-card p').textContent = 'crosses the finish line first!';
+    $('btn-again').textContent = 'New round';
+    $('winner-overlay').classList.remove('hidden');
+  } else {
+    $('winner-overlay').classList.add('hidden');
+  }
+}
+
+/* ---------------- phone: joining a TV room ---------------- */
+
+function resetJoinButton(){
+  clearTimeout(state.connectWatchdog);
+  $('btn-join').disabled = false;
+  $('btn-join').textContent = 'Join the Kennel 🐕';
+}
+
 function joinRoom(){
   initAudio();
-  const room = $('in-room').value.trim().toUpperCase() || 'TRACK1';
+  const room = $('in-room').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
   const name = $('in-name').value.trim();
+  if(room.length !== 4){ flashJoinError("Enter the 4-letter code shown on the TV."); return; }
   if(!name){ flashJoinError("Enter your name first."); return; }
   const el = document.getElementById('join-error');
   if(el) el.textContent = '';
-
   $('btn-join').disabled = true;
-  $('btn-join').textContent = 'Looking for the engine…';
+  $('btn-join').textContent = 'Connecting…';
 
   let waited = 0;
   const waitForLib = setInterval(()=>{
@@ -745,35 +1005,99 @@ function joinRoom(){
       state.name = name;
       state.card = generateCard();
       state.marked = new Array(25).fill(false);
-      $('lobby-room').textContent = room;
-      $('game-room').textContent = room;
-      $('game-you').textContent = `You: ${name}`;
-      $('btn-join').textContent = 'Connecting…';
       state.connectWatchdog = setTimeout(()=>{
         if(!state.netReady){
           resetJoinButton();
-          const extra = window.__peerLoadError ? (" (details: " + window.__peerLoadError + ")") : "";
-          flashJoinError("Couldn't connect" + extra + ". This is often a network issue — try turning off iCloud Private Relay or a VPN, switching between Wi-Fi and cellular, or opening this file directly in Safari/Chrome instead of an in-app browser, then try again.");
+          flashJoinError("Couldn't connect. Check your internet connection, turn off iCloud Private Relay or any VPN, and try again.");
         }
-      }, 12000);
-      setupHostPeer(room);
+      }, 15000);
+      setupGuestPeer(room);
     } else if(waited >= 8000){
       clearInterval(waitForLib);
       resetJoinButton();
-      flashJoinError("Couldn't load the networking library — check your internet connection and try again.");
+      flashJoinError("Couldn't load the networking library. Check your internet connection and try again.");
     }
   }, 200);
 }
 
+function setupGuestPeer(room){
+  state.isHost = false;
+  try{
+    state.peer = new Peer();
+  }catch(err){
+    resetJoinButton();
+    flashJoinError("This browser blocked the connection. Open the link in Safari or Chrome instead of an in-app browser.");
+    return;
+  }
+  state.peer.on('open', ()=>{
+    const conn = state.peer.connect(peerRoomId(room), { reliable: true });
+    state.hostConn = conn;
+    let opened = false;
+    conn.on('open', ()=>{
+      opened = true;
+      state.netReady = true;
+      sendToHost({ type:'join', name: state.name });
+      enterLobby();
+    });
+    conn.on('data', (raw)=>{
+      try{
+        const msg = JSON.parse(raw);
+        if(msg.type === 'state'){
+          gstate = msg.gstate;
+          applyState(gstate);
+        }
+      }catch(e){}
+    });
+    conn.on('close', ()=>{
+      if(!$('screen-join').classList.contains('hidden')) return;
+      flashStatus("Lost connection to the TV.");
+    });
+    setTimeout(()=>{
+      if(!opened){
+        try{ state.peer.destroy(); }catch(e){}
+        resetJoinButton();
+        flashJoinError("No TV found with code " + room + ". Check the code on the TV screen and try again.");
+      }
+    }, 10000);
+  });
+  state.peer.on('error', (err)=>{
+    if(state.netReady) return;
+    resetJoinButton();
+    if(err.type === 'peer-unavailable'){
+      flashJoinError("No TV found with code " + room + ". Check the code on the TV screen and try again.");
+    } else {
+      flashJoinError("Connection trouble (" + err.type + "). Try again, or check your network.");
+    }
+  });
+}
+
+/* ---------------- phone: solo practice (no TV, no network) ---------------- */
+
+function startPractice(){
+  initAudio();
+  state.local = true;
+  state.isHost = true;
+  state.netReady = true;
+  state.name = $('in-name').value.trim() || 'You';
+  state.room = 'SOLO';
+  state.card = generateCard();
+  state.marked = new Array(25).fill(false);
+  gstate.round = 1;
+  gstate.roster = [state.name];
+  enterLobby();
+}
+
 function enterLobby(){
   clearTimeout(state.connectWatchdog);
-  $('btn-join').disabled = false;
-  $('btn-join').textContent = 'Join the Kennel 🐕';
+  resetJoinButton();
+  $('lobby-room').textContent = state.room;
+  $('game-room').textContent = state.room;
+  $('game-you').textContent = 'You: ' + state.name;
   show('screen-lobby');
   applyState(gstate);
 }
 
-/* ---------------- rendering ---------------- */
+/* ---------------- phone rendering ---------------- */
 
 function renderRoster(names){
   const el = $('lobby-roster');
@@ -784,11 +1108,13 @@ function renderRoster(names){
     div.innerHTML = `<span class="pip"></span> ${escapeHtml(n)}`;
     el.appendChild(div);
   });
-  const solo = names.length <= 1;
-  $('btn-start').textContent = solo ? 'Start practice run 🐾' : 'Start the Race 🏁';
-  $('lobby-hint').textContent = solo
-    ? "No one else in the kennel yet — start anyway and practice on your own. Pick whichever mode you want to drill."
-    : "Everyone gets one vote. Most votes wins — ties go to Sprint line.";
+  if(state.local){
+    $('btn-start').textContent = 'Start practice run 🐾';
+    $('lobby-hint').textContent = "Practising on your own. Pick a race and pace, then start.";
+  } else {
+    $('btn-start').textContent = "Everyone's in, start 🏁";
+    $('lobby-hint').textContent = "Vote for the race and pace. Calls show on the TV and on your card here.";
+  }
 }
 
 function tallyOf(map, keys){
@@ -827,7 +1153,6 @@ function renderGrid(){
       if(row===2 && col===2){
         cellDiv.classList.add('free');
         cellDiv.textContent = '🐕';
-        cellDiv.dataset.free = '1';
       } else {
         const val = state.card[col][row];
         cellDiv.textContent = val;
@@ -851,8 +1176,7 @@ function calledSet(){
 
 function refreshCellStates(){
   const called = calledSet();
-  const cells = document.querySelectorAll('#bingo-grid .cell:not(.free)');
-  cells.forEach(cell=>{
+  document.querySelectorAll('#bingo-grid .cell:not(.free)').forEach(cell=>{
     const key = `${cell.dataset.letter}${cell.dataset.num}`;
     const idx = Number(cell.dataset.row)*5 + Number(cell.dataset.col);
     const isMarked = state.marked[idx];
@@ -864,8 +1188,7 @@ function refreshCellStates(){
 function onCellClick(e){
   const cell = e.currentTarget;
   const key = `${cell.dataset.letter}${cell.dataset.num}`;
-  const called = calledSet();
-  if(!called.has(key)){
+  if(!calledSet().has(key)){
     flashStatus("That one hasn't been called yet!");
     return;
   }
@@ -889,8 +1212,7 @@ function updateCallDisplay(){
     $('call-current').textContent = `${last.col}${last.num}`;
     $('call-flavor').textContent = FLAVORS[(game.revealed-1) % FLAVORS.length];
   }
-  const speedLabel = game.speedMs <= 900 ? 'TOP SPEED 🐕💨' : game.speedMs <= 1500 ? 'Picking up the pace' : 'Warming up';
-  $('call-speed').textContent = speedLabel;
+  $('call-speed').textContent = game.speedMs <= 900 ? 'Top speed' : game.speedMs <= 1500 ? 'Picking up the pace' : 'Warming up';
   const histEl = $('call-history');
   histEl.innerHTML = '';
   revealed.slice(-10).reverse().forEach(it=>{
@@ -904,38 +1226,41 @@ function currentMode(){
   return (gstate.game && gstate.game.mode) || 'line';
 }
 
+function newRoundLocal(){
+  state.card = generateCard();
+  state.marked = new Array(25).fill(false);
+  state.myVote = null;
+  state.myPace = null;
+  state.calledLapLead = false;
+  state.wonAlready = false;
+  $('winner-overlay').classList.add('hidden');
+}
+
 function applyState(gs){
   if(!$('screen-join').classList.contains('hidden')) return; // not joined yet
 
-  if(Array.isArray(gs.roster)) renderRoster(gs.roster);
-
-  if(!$('screen-lobby').classList.contains('hidden')){
-    renderVotes(gs.votes || {});
+  if(state.round !== gs.round){
+    if(state.round !== null) newRoundLocal();
+    state.round = gs.round;
   }
 
-  const inLobby = !$('screen-lobby').classList.contains('hidden');
+  if(Array.isArray(gs.roster)) renderRoster(gs.roster);
 
-  if(gs.game && gs.game.status === 'playing'){
-    if(inLobby){
+  const playing = gs.game && gs.game.status === 'playing';
+  if(!playing && !$('screen-game').classList.contains('hidden')) show('screen-lobby');
+  if(!$('screen-lobby').classList.contains('hidden')) renderVotes(gs.votes || {});
+
+  if(playing){
+    if(!$('screen-lobby').classList.contains('hidden')){
       show('screen-game');
       renderGrid();
     }
-    if(gs.game.startedAt !== state.lastSoundEpoch){
-      state.lastSoundEpoch = gs.game.startedAt;
-      state.lastSoundRevealed = 0;
-    }
-    if((gs.game.revealed || 0) > state.lastSoundRevealed){
-      state.lastSoundRevealed = gs.game.revealed;
-      playBing();
-    }
-    if(!$('screen-game').classList.contains('hidden')){
-      const md = MODES[currentMode()] || MODES.line;
-      const practice = gs.game.practice;
-      const pc = PACE[gs.game.paceKey] || PACE.standard;
-      $('mode-banner').textContent = (practice ? 'Practice run · ' : '') + md.label + ' — win with ' + md.need + ' · ' + pc.label + ' pace';
-      updateCallDisplay();
-      refreshCellStates();
-    }
+    maybeBing(gs);
+    const md = MODES[currentMode()] || MODES.line;
+    const pc = PACE[gs.game.paceKey] || PACE.standard;
+    $('mode-banner').textContent = (gs.game.practice ? 'Practice run · ' : '') + md.label + ': win with ' + md.need + ' · ' + pc.label + ' pace';
+    updateCallDisplay();
+    refreshCellStates();
   }
 
   const winner = gs.winner;
@@ -943,8 +1268,8 @@ function applyState(gs){
     state.wonAlready = true;
     const practice = gs.game && gs.game.practice;
     $('winner-name').textContent = practice ? 'Nice practice run!' : (winner.name === state.name ? `You (${winner.name})` : winner.name);
-    const sub = document.querySelector('.winner-card p');
-    if(sub) sub.textContent = practice ? 'Card cleared — go again or wait for friends.' : 'crosses the finish line first!';
+    document.querySelector('.winner-card p').textContent = practice ? 'Card cleared. Go again whenever you like.' : 'crosses the finish line first!';
+    $('btn-again').textContent = state.local ? 'Race again' : 'Back to the lobby';
     $('winner-overlay').classList.remove('hidden');
   }
   if((!winner || !winner.name) && state.wonAlready){
@@ -959,7 +1284,6 @@ function castVote(kind, value){
   if(kind === 'mode') state.myVote = value;
   if(kind === 'pace') state.myPace = value;
   if(state.isHost){
-    if(!gstate.votes[kind]) gstate.votes[kind] = {};
     gstate.votes[kind][state.name] = value;
     broadcastState();
   } else {
@@ -1007,7 +1331,7 @@ function tryClaim(){
         state.calledLapLead = true;
         flashStatus("Lap lead! Now fill the whole card to win.");
       } else {
-        flashStatus("Marathon needs the full card — keep marking!");
+        flashStatus("Marathon needs the full card. Keep marking!");
       }
       return;
     }
@@ -1016,14 +1340,12 @@ function tryClaim(){
       flashStatus(countLines() === 1 ? "One line down, one to go!" : "Double dash needs two lines.");
       return;
     }
-  } else {
-    if(countLines() < 1){
-      flashStatus("No completed line yet — keep marking!");
-      return;
-    }
+  } else if(countLines() < 1){
+    flashStatus("No completed line yet. Keep marking!");
+    return;
   }
   if(gstate.winner && gstate.winner.name){
-    flashStatus(`Too slow — ${gstate.winner.name} already won!`);
+    flashStatus(`Too slow! ${gstate.winner.name} already won.`);
     return;
   }
   if(state.isHost){
@@ -1036,27 +1358,20 @@ function tryClaim(){
 }
 
 function startRace(){
-  if(gstate.game && gstate.game.status === 'playing'){
-    show('screen-game');
-    renderGrid();
-    return;
-  }
-  if(state.isHost){
-    actuallyStartRace();
-  } else {
-    sendToHost({ type:'startRace' });
-  }
+  if(gstate.game && gstate.game.status === 'playing') return;
+  if(state.isHost) actuallyStartRace();
+  else sendToHost({ type:'startRace' });
 }
 
 function actuallyStartRace(){
+  if(gstate.roster.length === 0) return;
   const mode = tallyWinnerMode(gstate.votes);
   const paceKey = tallyWinnerPace(gstate.votes);
   const pace = PACE[paceKey] || PACE.standard;
-  const sequence = shuffledSequence();
   gstate.game = {
     status:'playing', mode, paceKey,
-    practice: gstate.roster.length <= 1,
-    sequence, revealed:1,
+    practice: state.local,
+    sequence: shuffledSequence(), revealed:1,
     speedMs: pace.start, paceFloor: pace.floor, paceDec: pace.dec,
     startedAt: Date.now()
   };
@@ -1071,10 +1386,8 @@ function hostLoop(){
     if(gstate.winner && gstate.winner.name) return;
     if(!gstate.game || gstate.game.status !== 'playing') return;
     if(gstate.game.revealed >= gstate.game.sequence.length) return;
-    const floor = gstate.game.paceFloor || 700;
-    const dec = gstate.game.paceDec || 55;
     gstate.game.revealed += 1;
-    gstate.game.speedMs = Math.max(floor, gstate.game.speedMs - dec);
+    gstate.game.speedMs = Math.max(gstate.game.paceFloor || 700, gstate.game.speedMs - (gstate.game.paceDec || 55));
     broadcastState();
     state.hostTimer = setTimeout(step, gstate.game.speedMs);
   };
@@ -1082,25 +1395,20 @@ function hostLoop(){
 }
 
 function resetForNewRound(){
+  if(state.hostTimer) clearTimeout(state.hostTimer);
+  gstate.round = (gstate.round || 1) + 1;
   gstate.votes = { mode: {}, pace: {} };
   gstate.game = { status:'waiting', mode:'line', paceKey:'standard', practice:false, sequence:[], revealed:0, speedMs:2600 };
   gstate.winner = {};
 }
 
 function playAgain(){
-  state.card = generateCard();
-  state.marked = new Array(25).fill(false);
-  state.myVote = null;
-  state.myPace = null;
-  state.calledLapLead = false;
-  state.wonAlready = false;
-  $('winner-overlay').classList.add('hidden');
-  show('screen-lobby');
   if(state.isHost){
     resetForNewRound();
     broadcastState();
   } else {
     sendToHost({ type:'playAgain' });
+    $('winner-overlay').classList.add('hidden');
   }
 }
 
@@ -1113,11 +1421,25 @@ document.querySelectorAll('.vote-opt[data-pace]').forEach(el=>{
   el.addEventListener('click', ()=> castVote('pace', el.dataset.pace));
 });
 $('btn-join').addEventListener('click', joinRoom);
+$('btn-practice').addEventListener('click', startPractice);
 $('btn-start').addEventListener('click', startRace);
 $('btn-claim').addEventListener('click', tryClaim);
 $('btn-again').addEventListener('click', playAgain);
+$('tv-open').addEventListener('click', openTvRoom);
+$('tv-start').addEventListener('click', ()=> actuallyStartRace());
+$('in-room').addEventListener('input', (e)=>{
+  e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
+});
 
-show('screen-join');
+if(IS_TV){
+  document.body.classList.add('tv-mode');
+  document.title = 'Greyhound Speed Bingo · TV';
+  showTV('tv-setup');
+} else {
+  const pre = (params.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
+  if(pre) $('in-room').value = pre;
+  show('screen-join');
+}
 </script>
 </body>
 </html>
