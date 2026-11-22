@@ -353,6 +353,29 @@
   .tv-close-row.hot{ background:var(--yellow); border-color:var(--yellow-dark); }
   .tv-close-row .need{ color:#5d6677; }
   .tv-close-row.hot .need{ color:var(--ink); }
+  /* Race screen: everything, including the BINGO button, fits on one phone screen */
+  body.in-game{ padding-top:8px !important; padding-bottom:8px !important; }
+  body.in-game .brand, body.in-game .lanes{ display:none; }
+  body.in-game #screen-game{ padding:12px 12px 10px; }
+  #screen-game .callbar{ margin-bottom:8px; }
+  #screen-game .mode-banner{ font-size:.78rem; padding:4px 8px; margin-bottom:8px; }
+  #screen-game .callout{ display:grid; grid-template-columns:auto 1fr; align-items:center; gap:4px 14px; text-align:left; padding:10px 16px; margin-bottom:8px; }
+  #screen-game .callout .current{ font-size:2.6rem; grid-row:span 2; }
+  #screen-game .callout .flavor{ margin-top:0; font-size:.85rem; }
+  #screen-game .callout .speed{ margin-top:0; font-size:.75rem; }
+  #screen-game .history{ flex-wrap:nowrap; overflow:hidden; margin-bottom:8px; gap:5px; }
+  #screen-game .history span{ flex:none; font-size:.72rem; padding:2px 6px; }
+  #screen-game .grid-head div{ font-size:1.1rem; padding-bottom:0; }
+  #screen-game .grid{ gap:5px; margin-top:4px; }
+  #screen-game .cell{ font-size:1.05rem; }
+  #screen-game .claim-row{ position:sticky; bottom:8px; margin-top:10px; z-index:5; }
+  #screen-game .claim-row .btn{ padding:13px 16px; box-shadow:0 4px 14px rgba(59,66,82,.25) !important; }
+  #screen-game .status-msg{ margin-top:6px; min-height:1.1em; font-size:.85rem; }
+  @media (max-height:700px){
+    #screen-game .cell{ aspect-ratio:auto; height:calc((100vh - 330px) / 5); min-height:40px; }
+  }
+  .tv-resume{ margin-top:14px; }
+  .tv-center .btn.secondary{ background:var(--purple); }
   .tv{ display:none; }
   body.tv-mode{ display:block !important; padding:3vh 3vw !important; min-height:100vh; }
   body.tv-mode .app{ display:none !important; }
@@ -512,6 +535,7 @@
     <h2>Put this screen on the TV</h2>
     <p>Players join on their phones with a 4-letter code. This screen shows the calls, the board and who wins.</p>
     <button class="btn" id="tv-open">Open a room</button>
+    <button class="btn secondary tv-resume hidden" id="tv-resume"></button>
     <p class="tv-error" id="tv-error"></p>
   </section>
 
@@ -776,6 +800,7 @@ function show(screenId){
   });
   const strip = $('runstrip');
   if(strip) strip.classList.toggle('hidden', screenId !== 'screen-join');
+  document.body.classList.toggle('in-game', screenId === 'screen-game');
   window.scrollTo(0, 0);
 }
 
@@ -893,6 +918,17 @@ function unlockSpeech(){
   try{ window.speechSynthesis.speak(new SpeechSynthesisUtterance('')); }catch(e){}
 }
 
+let wakeLock = null;
+async function keepAwake(){
+  try{
+    if('wakeLock' in navigator && !wakeLock){
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', ()=>{ wakeLock = null; });
+    }
+  }catch(e){ /* not supported or refused; the game still works */ }
+}
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && (state.netReady || state.local)) keepAwake(); });
+
 function callWords(item){ return item.col + '. ' + item.num; }
 
 // One bing and one spoken call per newly called number. The TV does this for the
@@ -920,7 +956,7 @@ function broadcastState(){
       state.client.publish(topics(state.room).state, JSON.stringify({ ts: Date.now(), gstate }), { qos:1, retain:true });
     }catch(e){}
   }
-  if(state.role === 'tv') renderTV(gstate); else applyState(gstate);
+  if(state.role === 'tv'){ renderTV(gstate); saveTvRoom(); } else applyState(gstate);
 }
 
 function sendToHost(msg){
@@ -995,24 +1031,41 @@ function handleGuestMessage(msg){
 
 /* ---------------- TV ---------------- */
 
+const TV_KEY = 'ghb-tv-room';
+function saveTvRoom(){
+  if(state.role !== 'tv' || !state.room) return;
+  try{ localStorage.setItem(TV_KEY, JSON.stringify({ code: state.room, ts: Date.now(), gstate })); }catch(e){}
+}
+function loadTvRoom(){
+  try{
+    const v = JSON.parse(localStorage.getItem(TV_KEY) || 'null');
+    if(v && v.code && Date.now() - v.ts < 3*3600*1000) return v;
+  }catch(e){}
+  return null;
+}
+
 function tvError(msg){
   $('tv-error').textContent = msg;
   $('tv-open').disabled = false;
   $('tv-open').textContent = 'Open a room';
+  $('tv-resume').disabled = false;
+  const sv = loadTvRoom();
+  if(sv) $('tv-resume').textContent = 'Reopen room ' + sv.code;
 }
 
 function openTvRoom(){
   initAudio();
   unlockSpeech();
+  keepAwake();
   $('tv-error').textContent = '';
   $('tv-open').disabled = true;
   $('tv-open').textContent = 'Opening…';
   waitForLib(()=> tryTvCode(0), ()=> tvError("Couldn't load the game's connection library. Check this device's internet connection and try again."));
 }
 
-async function tryTvCode(attempt){
+async function tryTvCode(attempt, resume){
   if(attempt >= 6){ tvError("Couldn't reserve a room code. Try again in a moment."); return; }
-  const code = randomCode();
+  const code = resume ? resume.code : randomCode();
   const t = topics(code);
   let client = null;
   for(const url of BROKERS){
@@ -1021,8 +1074,8 @@ async function tryTvCode(attempt){
   }
   if(!client){ tvError("Couldn't reach the game server. Check the internet connection, turn off any VPN, and try again."); return; }
 
-  // Make sure nobody else is using this code right now.
-  const taken = await new Promise(res=>{
+  // Make sure nobody else is using this code right now (unless we're resuming our own room).
+  const taken = resume ? false : await new Promise(res=>{
     let got = false;
     const onMsg = (topic, payload)=>{
       if(topic === t.state && payload && payload.length){
@@ -1041,9 +1094,16 @@ async function tryTvCode(attempt){
   state.netReady = true;
   state.isHost = true;
   state.room = code;
-  gstate.roster = [];
-  gstate.players = {};
-  gstate.round = 1;
+  if(resume && resume.gstate){
+    gstate = resume.gstate;
+    const now = Date.now();
+    Object.keys(gstate.players || {}).forEach(pid=>{ hostPlayers[pid] = { name: gstate.players[pid], lastSeen: now }; });
+    syncRoster();
+  } else {
+    gstate.roster = [];
+    gstate.players = {};
+    gstate.round = 1;
+  }
   client.subscribe(t.up, { qos:1 });
   client.on('message', (topic, payload)=>{
     if(topic !== t.up) return;
@@ -1065,7 +1125,18 @@ async function tryTvCode(attempt){
   setupTvLobby(code);
   $('tv-menu-btn').classList.remove('hidden');
   broadcastState();
-  if(state.settings.voice) speak('Room open. Join with the code ' + code.split('').join(', ') + '.');
+  if(resume && gstate.game.status === 'playing' && !(gstate.winner && gstate.winner.name)) hostLoop();
+  if(state.settings.voice) speak(resume ? 'Room ' + code.split('').join(', ') + ' is back.' : 'Room open. Join with the code ' + code.split('').join(', ') + '.');
+}
+
+function resumeTvRoom(){
+  const saved = loadTvRoom();
+  if(!saved) return;
+  initAudio(); unlockSpeech(); keepAwake();
+  $('tv-error').textContent = '';
+  $('tv-resume').disabled = true;
+  $('tv-resume').textContent = 'Reopening ' + saved.code + '…';
+  waitForLib(()=> tryTvCode(0, saved), ()=> tvError("Couldn't load the game's connection library. Check this device's internet connection and try again."));
 }
 
 function setupTvLobby(code){
@@ -1223,6 +1294,25 @@ function renderTV(gs){
 
 /* ---------------- phone: joining a TV room ---------------- */
 
+const SESSION_KEY = 'ghb-phone-session';
+function saveSession(){
+  if(state.local || !state.room || !state.netReady) return;
+  try{
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      room: state.room, name: state.name, pid: state.pid, ts: Date.now(),
+      round: state.round, card: state.card, marked: state.marked, myVote: state.myVote, myPace: state.myPace
+    }));
+  }catch(e){}
+}
+function loadSession(){
+  try{
+    const v = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    if(v && v.room && Date.now() - v.ts < 6*3600*1000) return v;
+  }catch(e){}
+  return null;
+}
+function clearSession(){ try{ localStorage.removeItem(SESSION_KEY); }catch(e){} }
+
 function resetJoinButton(){
   $('btn-join').disabled = false;
   $('btn-join').textContent = 'Join the Kennel 🐕';
@@ -1230,6 +1320,8 @@ function resetJoinButton(){
 
 function joinRoom(){
   initAudio();
+  unlockSpeech();
+  keepAwake();
   const room = $('in-room').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
   const name = $('in-name').value.trim();
   if(room.length !== 4){ flashJoinError("Enter the 4-letter code shown on the TV."); return; }
@@ -1279,6 +1371,14 @@ async function joinViaRelay(room){
     });
     client.on('connect', ()=> sendToHost({ type:'ping', name: state.name }));
     try{ gstate = JSON.parse(found).gstate; }catch(e){}
+    const saved = state.resume;
+    if(saved && saved.room === room && saved.card && saved.round === gstate.round){
+      state.card = saved.card;
+      state.marked = saved.marked || new Array(25).fill(false);
+      state.myVote = saved.myVote || null;
+      state.myPace = saved.myPace || null;
+    }
+    state.resume = null;
     sendToHost({ type:'join', name: state.name });
     state.pingTimer = setInterval(()=> sendToHost({ type:'ping', name: state.name }), 5000);
     document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) sendToHost({ type:'ping', name: state.name }); });
@@ -1287,6 +1387,12 @@ async function joinViaRelay(room){
     return;
   }
   resetJoinButton();
+  if(state.resume){
+    state.resume = null;
+    clearSession();
+    flashJoinError("Room " + room + " has closed. Enter the code shown on the TV to join a new one.");
+    return;
+  }
   flashJoinError(reachedAny
     ? "No TV found with code " + room + ". Check the code on the TV screen and try again."
     : "Couldn't reach the game server. Check your internet connection, turn off iCloud Private Relay or any VPN, and try again.");
@@ -1297,6 +1403,7 @@ async function joinViaRelay(room){
 function startPractice(){
   initAudio();
   unlockSpeech();
+  keepAwake();
   state.local = true;
   state.isHost = true;
   state.netReady = true;
@@ -1311,6 +1418,7 @@ function startPractice(){
 
 function enterLobby(){
   resetJoinButton();
+  saveSession();
   $('lobby-room').textContent = state.room;
   $('game-room').textContent = state.room;
   $('game-you').textContent = 'You: ' + state.name;
@@ -1420,6 +1528,7 @@ function onCellClick(e){
   state.marked[idx] = !state.marked[idx];
   refreshCellStates();
   sendProgress();
+  saveSession();
 }
 
 function updateCallDisplay(){
@@ -1468,6 +1577,7 @@ function applyState(gs){
   if(state.round !== gs.round){
     if(state.round !== null) newRoundLocal();
     state.round = gs.round;
+    saveSession();
   }
 
   if(gs.players && gs.players[state.pid] && gs.players[state.pid] !== state.name){
@@ -1521,6 +1631,7 @@ function applyState(gs){
 function castVote(kind, value){
   if(kind === 'mode') state.myVote = value;
   if(kind === 'pace') state.myPace = value;
+  saveSession();
   if(kind === 'pace' && state.local) gstate.paceOverride = null;
   if(state.isHost){
     gstate.votes[kind][state.name] = value;
@@ -1718,6 +1829,7 @@ $('btn-start').addEventListener('click', startRace);
 $('btn-claim').addEventListener('click', tryClaim);
 $('btn-again').addEventListener('click', playAgain);
 $('tv-open').addEventListener('click', openTvRoom);
+$('tv-resume').addEventListener('click', resumeTvRoom);
 $('tv-menu-btn').addEventListener('click', openMenu);
 $('tv-menu-close').addEventListener('click', closeMenu);
 $('tv-menu').addEventListener('click', (e)=>{ if(e.target === $('tv-menu')) closeMenu(); });
@@ -1744,10 +1856,32 @@ if(IS_TV){
   document.body.classList.add('tv-mode');
   document.title = 'Greyhound Speed Bingo · TV';
   showTV('tv-setup');
+  const savedRoom = loadTvRoom();
+  if(savedRoom){
+    $('tv-resume').textContent = 'Reopen room ' + savedRoom.code;
+    $('tv-resume').classList.remove('hidden');
+  }
 } else {
   const pre = (params.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(pre) $('in-room').value = pre;
   show('screen-join');
+  const saved = loadSession();
+  if(saved && (!pre || pre === saved.room)){
+    // The page reloaded mid-game (or the phone dropped the tab): slip back in as the same player.
+    state.resume = saved;
+    state.pid = saved.pid;
+    $('in-room').value = saved.room;
+    $('in-name').value = saved.name;
+    $('btn-join').disabled = true;
+    $('btn-join').textContent = 'Rejoining ' + saved.room + '…';
+    waitForLib(()=>{
+      state.room = saved.room;
+      state.name = saved.name;
+      state.card = generateCard();
+      state.marked = new Array(25).fill(false);
+      joinViaRelay(saved.room);
+    }, ()=>{ state.resume = null; resetJoinButton(); });
+  }
 }
 </script>
 </body>
