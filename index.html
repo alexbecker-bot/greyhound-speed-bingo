@@ -238,8 +238,10 @@
     padding:11px 13px; margin-bottom:10px; cursor:pointer; box-shadow: 3px 4px 0 var(--ink);
     transition: transform .07s ease;
   }
+  button.vote-opt{ display:block; width:100%; text-align:left; font:inherit; color:inherit; appearance:none; -webkit-appearance:none; }
+  .vote-opt:focus-visible{ outline:3px solid var(--red); outline-offset:2px; }
   .vote-opt:hover{ transform: rotate(-1deg); }
-  .vote-opt.picked{ background: var(--yellow); transform: rotate(-1.5deg); }
+  .vote-opt.picked{ background: var(--yellow) !important;  background: var(--yellow); transform: rotate(-1.5deg); }
   .vote-name{ font-family:'Luckiest Guy',cursive; font-size:1.1rem; }
   .vote-desc{ font-size:0.85rem; font-weight:700; color:#6b5836; margin-top:3px; line-height:1.35; }
   .vote-count{ font-family:'Luckiest Guy',cursive; font-size:0.85rem; color: var(--red); margin-top:6px; }
@@ -416,39 +418,39 @@
     <div class="roster" id="lobby-roster"></div>
     <div class="vote-block">
       <div class="vote-title">Pick tonight's race</div>
-      <div class="vote-opt" data-mode="line">
+      <button type="button" class="vote-opt" data-mode="line">
         <div class="vote-name">Sprint line</div>
         <div class="vote-desc">First to any row, column or diagonal wins. The classic.</div>
         <div class="vote-count" id="count-line">0 votes</div>
-      </div>
-      <div class="vote-opt" data-mode="marathon">
+      </button>
+      <button type="button" class="vote-opt" data-mode="marathon">
         <div class="vote-name">Marathon</div>
         <div class="vote-desc">First line gets you the lap lead, but the race keeps going — winner is the first full card.</div>
         <div class="vote-count" id="count-marathon">0 votes</div>
-      </div>
-      <div class="vote-opt" data-mode="double">
+      </button>
+      <button type="button" class="vote-opt" data-mode="double">
         <div class="vote-name">Double dash</div>
         <div class="vote-desc">You need two completed lines before you can call it.</div>
         <div class="vote-count" id="count-double">0 votes</div>
-      </div>
+      </button>
     </div>
     <div class="vote-block">
       <div class="vote-title">Pick the pace</div>
-      <div class="vote-opt" data-pace="leisurely">
+      <button type="button" class="vote-opt" data-pace="leisurely">
         <div class="vote-name">Leisurely</div>
         <div class="vote-desc">Slower calls throughout. Good for beginners or big cards.</div>
         <div class="vote-count" id="count-leisurely">0 votes</div>
-      </div>
-      <div class="vote-opt" data-pace="standard">
+      </button>
+      <button type="button" class="vote-opt" data-pace="standard">
         <div class="vote-name">Standard</div>
         <div class="vote-desc">Starts steady and speeds up as the race goes. The classic feel.</div>
         <div class="vote-count" id="count-standard">0 votes</div>
-      </div>
-      <div class="vote-opt" data-pace="blazing">
+      </button>
+      <button type="button" class="vote-opt" data-pace="blazing">
         <div class="vote-name">Blazing</div>
         <div class="vote-desc">Fast from the gate and brutal by the end. For sharp eyes only.</div>
         <div class="vote-count" id="count-blazing">0 votes</div>
-      </div>
+      </button>
     </div>
     <button class="btn" id="btn-start">Start the Race 🏁</button>
     <p class="hint" id="lobby-hint">Everyone gets one vote for mode and one for pace. Most votes wins each — ties go to Sprint line / Standard.</p>
@@ -598,9 +600,9 @@ const MODES = {
   double:   {label:'Double dash',  need:'two completed lines'}
 };
 const PACE = {
-  leisurely: {label:'Leisurely', start:3400, floor:1200, dec:40},
-  standard:  {label:'Standard',  start:2600, floor:700,  dec:55},
-  blazing:   {label:'Blazing',   start:1800, floor:450,  dec:70}
+  leisurely: {label:'Leisurely', start:4000, floor:2800, dec:20},
+  standard:  {label:'Standard',  start:3000, floor:1400, dec:35},
+  blazing:   {label:'Blazing',   start:2000, floor:700,  dec:50}
 };
 const CODE_CHARS = 'BCDFGHJKLMNPQRSTVWXZ';
 // Free public relays. Every device connects out to one, so no direct
@@ -657,11 +659,11 @@ function connectBroker(url, extra){
       resolve(ok ? c : null);
     };
     try{
-      c = mqtt.connect(url, Object.assign({ clientId:'ghb_'+makeId(), clean:true, connectTimeout:6000, reconnectPeriod:0, protocolVersion:4 }, extra || {}));
+      c = mqtt.connect(url, Object.assign({ clientId:'ghb_'+makeId(), clean:true, connectTimeout:9000, reconnectPeriod:0, protocolVersion:4 }, extra || {}));
     }catch(e){ fin(false); return; }
     c.on('connect', ()=> fin(true));
     c.on('error', ()=> fin(false));
-    setTimeout(()=> fin(false), 7000);
+    setTimeout(()=> fin(false), 10000);
   });
 }
 
@@ -680,6 +682,7 @@ function show(screenId){
   });
   const strip = $('runstrip');
   if(strip) strip.classList.toggle('hidden', screenId !== 'screen-join');
+  window.scrollTo(0, 0);
 }
 
 function showTV(sectionId){
@@ -1059,7 +1062,7 @@ function joinRoom(){
 async function joinViaRelay(room){
   const t = topics(room);
   let reachedAny = false;
-  for(const url of BROKERS){
+  for(const url of BROKERS.concat(BROKERS)){
     const client = await connectBroker(url, { will: { topic: t.up, payload: JSON.stringify({ type:'leave', pid: state.pid }), qos: 1, retain: false } });
     if(!client) continue;
     reachedAny = true;
@@ -1070,7 +1073,7 @@ async function joinViaRelay(room){
       };
       client.on('message', onMsg);
       client.subscribe(t.state, { qos:1 });
-      setTimeout(()=>{ if(!done){ done = true; res(null); } }, 4000);
+      setTimeout(()=>{ if(!done){ done = true; res(null); } }, 5000);
     });
     if(!found){ try{ client.end(true); }catch(e){} continue; }
 
@@ -1238,7 +1241,7 @@ function updateCallDisplay(){
     $('call-current').textContent = `${last.col}${last.num}`;
     $('call-flavor').textContent = FLAVORS[(game.revealed-1) % FLAVORS.length];
   }
-  $('call-speed').textContent = game.speedMs <= 900 ? 'Top speed' : game.speedMs <= 1500 ? 'Picking up the pace' : 'Warming up';
+  $('call-speed').textContent = game.speedMs <= 1000 ? 'Top speed' : game.speedMs <= 2000 ? 'Picking up the pace' : 'Warming up';
   const histEl = $('call-history');
   histEl.innerHTML = '';
   revealed.slice(-10).reverse().forEach(it=>{
