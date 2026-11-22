@@ -7,27 +7,23 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
 <script>
-window.__peerLoadError = null;
 (function(){
   var urls = [
-    'https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js',
-    'https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js',
-    'https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js'
+    'https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js',
+    'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js',
+    'https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'
   ];
   var i = 0;
   function tryNext(){
     if(i >= urls.length) return;
-    var s = document.createElement('script');
-    s.src = urls[i++];
-    s.crossOrigin = 'anonymous';
-    s.onerror = tryNext;
-    document.head.appendChild(s);
+    var el = document.createElement('script');
+    el.src = urls[i++];
+    el.crossOrigin = 'anonymous';
+    el.onerror = tryNext;
+    document.head.appendChild(el);
   }
   tryNext();
 })();
-window.addEventListener('error', function(e){
-  window.__peerLoadError = (e && e.message) ? e.message : 'unknown script error';
-});
 </script>
 <style>
   :root{
@@ -607,6 +603,16 @@ const PACE = {
   blazing:   {label:'Blazing',   start:1800, floor:450,  dec:70}
 };
 const CODE_CHARS = 'BCDFGHJKLMNPQRSTVWXZ';
+// Free public relays. Every device connects out to one, so no direct
+// phone-to-TV link is needed and home Wi-Fi vs cellular doesn't matter.
+const BROKERS = [
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://broker.emqx.io:8084/mqtt',
+  'wss://test.mosquitto.org:8081/mqtt'
+];
+const TOPIC_ROOT = 'greyhound-speed-bingo/v1/';
+function topics(code){ const b = TOPIC_ROOT + code; return { state: b + '/state', up: b + '/up' }; }
+function makeId(){ return Math.random().toString(36).slice(2,10); }
 const params = new URLSearchParams(location.search);
 const IS_TV = params.has('tv');
 
@@ -616,7 +622,7 @@ let state = {
   room: '', name: '',
   card: null, marked: null,
   isHost: false,
-  peer: null, conns: [], hostConn: null,
+  pid: makeId(), client: null, pingTimer: null,
   hostTimer: null, connectWatchdog: null,
   wonAlready: false,
   myVote: null, myPace: null,
@@ -639,7 +645,34 @@ let gstate = {
 };
 
 const $ = (id) => document.getElementById(id);
-function peerLibReady(){ return typeof Peer !== 'undefined'; }
+function netLibReady(){ return typeof mqtt !== 'undefined'; }
+const hostPlayers = {}; // TV only: pid -> {name, lastSeen}
+
+function connectBroker(url, extra){
+  return new Promise((resolve)=>{
+    let done = false, c;
+    const fin = (ok)=>{
+      if(done) return; done = true;
+      if(!ok){ try{ c && c.end(true); }catch(e){} }
+      resolve(ok ? c : null);
+    };
+    try{
+      c = mqtt.connect(url, Object.assign({ clientId:'ghb_'+makeId(), clean:true, connectTimeout:6000, reconnectPeriod:0, protocolVersion:4 }, extra || {}));
+    }catch(e){ fin(false); return; }
+    c.on('connect', ()=> fin(true));
+    c.on('error', ()=> fin(false));
+    setTimeout(()=> fin(false), 7000);
+  });
+}
+
+function waitForLib(onReady, onFail){
+  let waited = 0;
+  const t = setInterval(()=>{
+    waited += 200;
+    if(netLibReady()){ clearInterval(t); onReady(); }
+    else if(waited >= 8000){ clearInterval(t); onFail(); }
+  }, 200);
+}
 
 function show(screenId){
   ['screen-join','screen-lobby','screen-game'].forEach(id=>{
@@ -763,33 +796,63 @@ function maybeBing(gs){
 /* ---------------- networking (host side: TV or solo practice) ---------------- */
 
 function broadcastState(){
-  const payload = JSON.stringify({ type:'state', gstate });
-  state.conns.forEach(c=>{ if(c.open){ try{ c.send(payload); }catch(e){} } });
+  if(state.role === 'tv' && state.client){
+    try{
+      state.client.publish(topics(state.room).state, JSON.stringify({ ts: Date.now(), gstate }), { qos:1, retain:true });
+    }catch(e){}
+  }
   if(state.role === 'tv') renderTV(gstate); else applyState(gstate);
 }
 
 function sendToHost(msg){
-  if(state.hostConn && state.hostConn.open){
-    state.hostConn.send(JSON.stringify(msg));
-  }
+  if(!state.client) return;
+  try{
+    state.client.publish(topics(state.room).up, JSON.stringify(Object.assign({ pid: state.pid }, msg)), { qos:1 });
+  }catch(e){}
 }
 
-function handleGuestMessage(conn, msg){
-  if(msg.type === 'join'){
-    const name = String(msg.name || 'Player').slice(0,14);
-    if(!gstate.roster.includes(name)) gstate.roster.push(name);
-    conn._playerName = name;
+function syncRoster(){
+  gstate.roster = Object.values(hostPlayers).map(p=>p.name);
+  gstate.players = {};
+  Object.keys(hostPlayers).forEach(pid=>{ gstate.players[pid] = hostPlayers[pid].name; });
+}
+
+function handleGuestMessage(msg){
+  if(!msg || !msg.pid) return;
+  const now = Date.now();
+  if(msg.type === 'join' || msg.type === 'ping'){
+    const p = hostPlayers[msg.pid];
+    if(p){
+      p.lastSeen = now;
+      if(msg.type === 'join') broadcastState();
+      return;
+    }
+    let name = String(msg.name || 'Player').trim().slice(0,14) || 'Player';
+    const taken = new Set(Object.values(hostPlayers).map(x=>x.name));
+    if(taken.has(name)){ let i = 2; while(taken.has(name + ' ' + i)) i++; name = name + ' ' + i; }
+    hostPlayers[msg.pid] = { name, lastSeen: now };
+    syncRoster();
     broadcastState();
-  } else if(msg.type === 'vote'){
+    return;
+  }
+  if(msg.type === 'leave'){
+    if(hostPlayers[msg.pid]){ delete hostPlayers[msg.pid]; syncRoster(); broadcastState(); }
+    return;
+  }
+  const pl = hostPlayers[msg.pid];
+  if(!pl) return;
+  pl.lastSeen = now;
+  const name = pl.name;
+  if(msg.type === 'vote'){
     if(gstate.game.status === 'playing') return;
     if(msg.kind !== 'mode' && msg.kind !== 'pace') return;
-    gstate.votes[msg.kind][msg.name] = msg.value;
+    gstate.votes[msg.kind][name] = msg.value;
     broadcastState();
   } else if(msg.type === 'startRace'){
     if(gstate.game.status !== 'playing') actuallyStartRace();
   } else if(msg.type === 'claim'){
     if(gstate.game.status === 'playing' && !gstate.winner.name){
-      gstate.winner = { name: msg.name, wonAt: Date.now() };
+      gstate.winner = { name, wonAt: now };
       if(state.hostTimer) clearTimeout(state.hostTimer);
       broadcastState();
     }
@@ -799,28 +862,6 @@ function handleGuestMessage(conn, msg){
       broadcastState();
     }
   }
-}
-
-function wireHostPeer(){
-  state.peer.on('connection', (conn)=>{
-    state.conns.push(conn);
-    conn.on('data', (raw)=>{
-      try{ handleGuestMessage(conn, JSON.parse(raw)); }catch(e){}
-    });
-    conn.on('close', ()=>{
-      state.conns = state.conns.filter(c=>c!==conn);
-      const n = conn._playerName;
-      // Only drop the name if that player hasn't already reconnected on a new link.
-      if(n && !state.conns.some(c=>c._playerName===n && c.open)){
-        gstate.roster = gstate.roster.filter(x=>x!==n);
-        broadcastState();
-      }
-    });
-    conn.on('open', ()=> broadcastState());
-  });
-  state.peer.on('disconnected', ()=>{
-    try{ state.peer.reconnect(); }catch(e){}
-  });
 }
 
 /* ---------------- TV ---------------- */
@@ -836,54 +877,63 @@ function openTvRoom(){
   $('tv-error').textContent = '';
   $('tv-open').disabled = true;
   $('tv-open').textContent = 'Opening…';
-  let waited = 0;
-  const wait = setInterval(()=>{
-    waited += 200;
-    if(peerLibReady()){
-      clearInterval(wait);
-      tryTvCode(0);
-    } else if(waited >= 8000){
-      clearInterval(wait);
-      tvError("Couldn't load the networking library. Check this device's internet connection and try again.");
-    }
-  }, 200);
+  waitForLib(()=> tryTvCode(0), ()=> tvError("Couldn't load the game's connection library. Check this device's internet connection and try again."));
 }
 
-function tryTvCode(attempt){
+async function tryTvCode(attempt){
   if(attempt >= 6){ tvError("Couldn't reserve a room code. Try again in a moment."); return; }
   const code = randomCode();
-  let peer;
-  try{
-    peer = new Peer(peerRoomId(code));
-  }catch(err){
-    tvError("This browser blocked the connection (" + (err && err.message ? err.message : err) + "). Try Chrome or Safari.");
-    return;
+  const t = topics(code);
+  let client = null;
+  for(const url of BROKERS){
+    client = await connectBroker(url, { will: { topic: t.state, payload: '', retain: true, qos: 1 } });
+    if(client) break;
   }
-  const watchdog = setTimeout(()=>{
-    if(!state.netReady){
-      try{ peer.destroy(); }catch(e){}
-      tvError("Couldn't reach the game server. Check the internet connection, turn off any VPN, and try again.");
-    }
-  }, 12000);
-  peer.on('open', ()=>{
-    clearTimeout(watchdog);
-    state.peer = peer;
-    state.netReady = true;
-    state.isHost = true;
-    state.room = code;
-    gstate.roster = [];
-    gstate.round = 1;
-    wireHostPeer();
-    setupTvLobby(code);
+  if(!client){ tvError("Couldn't reach the game server. Check the internet connection, turn off any VPN, and try again."); return; }
+
+  // Make sure nobody else is using this code right now.
+  const taken = await new Promise(res=>{
+    let got = false;
+    const onMsg = (topic, payload)=>{
+      if(topic === t.state && payload && payload.length){
+        try{ const m = JSON.parse(payload.toString()); if(Date.now() - m.ts < 120000) got = true; }catch(e){}
+      }
+    };
+    client.on('message', onMsg);
+    client.subscribe(t.state, { qos:1 }, ()=>{
+      setTimeout(()=>{ client.removeListener('message', onMsg); client.unsubscribe(t.state); res(got); }, 1200);
+    });
+  });
+  if(taken){ try{ client.end(true); }catch(e){} tryTvCode(attempt + 1); return; }
+
+  state.client = client;
+  client.options.reconnectPeriod = 2000;
+  state.netReady = true;
+  state.isHost = true;
+  state.room = code;
+  gstate.roster = [];
+  gstate.players = {};
+  gstate.round = 1;
+  client.subscribe(t.up, { qos:1 });
+  client.on('message', (topic, payload)=>{
+    if(topic !== t.up) return;
+    try{ handleGuestMessage(JSON.parse(payload.toString())); }catch(e){}
+  });
+  // After a network blip the relay clears the room; publish it again.
+  client.on('connect', ()=> broadcastState());
+  // Drop players whose phones have gone quiet; keep the room fresh for code checks.
+  setInterval(()=>{
+    const cutoff = Date.now() - 25000;
+    let changed = false;
+    Object.keys(hostPlayers).forEach(pid=>{ if(hostPlayers[pid].lastSeen < cutoff){ delete hostPlayers[pid]; changed = true; } });
+    if(changed) syncRoster();
     broadcastState();
+  }, 10000);
+  window.addEventListener('pagehide', ()=>{
+    try{ client.publish(t.state, '', { qos:0, retain:true }); }catch(e){}
   });
-  peer.on('error', (err)=>{
-    if(state.netReady) return; // later blips are handled by the reconnect logic
-    clearTimeout(watchdog);
-    try{ peer.destroy(); }catch(e){}
-    if(err.type === 'unavailable-id') tryTvCode(attempt+1);
-    else tvError("Connection trouble (" + err.type + "). Check the internet connection and try again.");
-  });
+  setupTvLobby(code);
+  broadcastState();
 }
 
 function setupTvLobby(code){
@@ -980,7 +1030,6 @@ function renderTV(gs){
 /* ---------------- phone: joining a TV room ---------------- */
 
 function resetJoinButton(){
-  clearTimeout(state.connectWatchdog);
   $('btn-join').disabled = false;
   $('btn-join').textContent = 'Join the Kennel 🐕';
 }
@@ -995,80 +1044,58 @@ function joinRoom(){
   if(el) el.textContent = '';
   $('btn-join').disabled = true;
   $('btn-join').textContent = 'Connecting…';
-
-  let waited = 0;
-  const waitForLib = setInterval(()=>{
-    waited += 200;
-    if(peerLibReady()){
-      clearInterval(waitForLib);
-      state.room = room;
-      state.name = name;
-      state.card = generateCard();
-      state.marked = new Array(25).fill(false);
-      state.connectWatchdog = setTimeout(()=>{
-        if(!state.netReady){
-          resetJoinButton();
-          flashJoinError("Couldn't connect. Check your internet connection, turn off iCloud Private Relay or any VPN, and try again.");
-        }
-      }, 15000);
-      setupGuestPeer(room);
-    } else if(waited >= 8000){
-      clearInterval(waitForLib);
-      resetJoinButton();
-      flashJoinError("Couldn't load the networking library. Check your internet connection and try again.");
-    }
-  }, 200);
+  waitForLib(()=>{
+    state.room = room;
+    state.name = name;
+    state.card = generateCard();
+    state.marked = new Array(25).fill(false);
+    joinViaRelay(room);
+  }, ()=>{
+    resetJoinButton();
+    flashJoinError("Couldn't load the game's connection library. Check your internet connection and try again.");
+  });
 }
 
-function setupGuestPeer(room){
-  state.isHost = false;
-  try{
-    state.peer = new Peer();
-  }catch(err){
-    resetJoinButton();
-    flashJoinError("This browser blocked the connection. Open the link in Safari or Chrome instead of an in-app browser.");
+async function joinViaRelay(room){
+  const t = topics(room);
+  let reachedAny = false;
+  for(const url of BROKERS){
+    const client = await connectBroker(url, { will: { topic: t.up, payload: JSON.stringify({ type:'leave', pid: state.pid }), qos: 1, retain: false } });
+    if(!client) continue;
+    reachedAny = true;
+    const found = await new Promise(res=>{
+      let done = false;
+      const onMsg = (topic, payload)=>{
+        if(topic === t.state && payload && payload.length && !done){ done = true; res(payload.toString()); }
+      };
+      client.on('message', onMsg);
+      client.subscribe(t.state, { qos:1 });
+      setTimeout(()=>{ if(!done){ done = true; res(null); } }, 4000);
+    });
+    if(!found){ try{ client.end(true); }catch(e){} continue; }
+
+    state.client = client;
+    client.options.reconnectPeriod = 2000;
+    state.netReady = true;
+    client.removeAllListeners('message');
+    client.on('message', (topic, payload)=>{
+      if(topic !== t.state) return;
+      if(!payload || !payload.length){ flashStatus("Waiting for the TV to come back…"); return; }
+      try{ const m = JSON.parse(payload.toString()); gstate = m.gstate; applyState(gstate); }catch(e){}
+    });
+    client.on('connect', ()=> sendToHost({ type:'ping', name: state.name }));
+    try{ gstate = JSON.parse(found).gstate; }catch(e){}
+    sendToHost({ type:'join', name: state.name });
+    state.pingTimer = setInterval(()=> sendToHost({ type:'ping', name: state.name }), 5000);
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) sendToHost({ type:'ping', name: state.name }); });
+    window.addEventListener('pagehide', ()=> sendToHost({ type:'leave' }));
+    enterLobby();
     return;
   }
-  state.peer.on('open', ()=>{
-    const conn = state.peer.connect(peerRoomId(room), { reliable: true });
-    state.hostConn = conn;
-    let opened = false;
-    conn.on('open', ()=>{
-      opened = true;
-      state.netReady = true;
-      sendToHost({ type:'join', name: state.name });
-      enterLobby();
-    });
-    conn.on('data', (raw)=>{
-      try{
-        const msg = JSON.parse(raw);
-        if(msg.type === 'state'){
-          gstate = msg.gstate;
-          applyState(gstate);
-        }
-      }catch(e){}
-    });
-    conn.on('close', ()=>{
-      if(!$('screen-join').classList.contains('hidden')) return;
-      flashStatus("Lost connection to the TV.");
-    });
-    setTimeout(()=>{
-      if(!opened){
-        try{ state.peer.destroy(); }catch(e){}
-        resetJoinButton();
-        flashJoinError("No TV found with code " + room + ". Check the code on the TV screen and try again.");
-      }
-    }, 10000);
-  });
-  state.peer.on('error', (err)=>{
-    if(state.netReady) return;
-    resetJoinButton();
-    if(err.type === 'peer-unavailable'){
-      flashJoinError("No TV found with code " + room + ". Check the code on the TV screen and try again.");
-    } else {
-      flashJoinError("Connection trouble (" + err.type + "). Try again, or check your network.");
-    }
-  });
+  resetJoinButton();
+  flashJoinError(reachedAny
+    ? "No TV found with code " + room + ". Check the code on the TV screen and try again."
+    : "Couldn't reach the game server. Check your internet connection, turn off iCloud Private Relay or any VPN, and try again.");
 }
 
 /* ---------------- phone: solo practice (no TV, no network) ---------------- */
@@ -1088,7 +1115,6 @@ function startPractice(){
 }
 
 function enterLobby(){
-  clearTimeout(state.connectWatchdog);
   resetJoinButton();
   $('lobby-room').textContent = state.room;
   $('game-room').textContent = state.room;
@@ -1244,6 +1270,10 @@ function applyState(gs){
     state.round = gs.round;
   }
 
+  if(gs.players && gs.players[state.pid] && gs.players[state.pid] !== state.name){
+    state.name = gs.players[state.pid];
+    $('game-you').textContent = 'You: ' + state.name;
+  }
   if(Array.isArray(gs.roster)) renderRoster(gs.roster);
 
   const playing = gs.game && gs.game.status === 'playing';
