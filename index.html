@@ -4,27 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Greyhound Speed Bingo</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Luckiest+Guy&family=Nunito:wght@700;900&display=swap" rel="stylesheet">
-<script>
-(function(){
-  var urls = [
-    'https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.10.1/mqtt.min.js',
-    'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js',
-    'https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'
-  ];
-  var i = 0;
-  function tryNext(){
-    if(i >= urls.length) return;
-    var el = document.createElement('script');
-    el.src = urls[i++];
-    el.crossOrigin = 'anonymous';
-    el.onerror = tryNext;
-    document.head.appendChild(el);
-  }
-  tryNext();
-})();
-</script>
+<style>
+  @font-face{ font-family:'Luckiest Guy'; font-style:normal; font-weight:400; font-display:swap; src:url('vendor/luckiest-guy.woff2') format('woff2'); }
+  @font-face{ font-family:'Nunito'; font-style:normal; font-weight:700 900; font-display:swap; src:url('vendor/nunito.woff2') format('woff2'); }
+</style>
+<script src="vendor/mqtt.min.js"></script>
 <style>
   :root{
     --ink:#3b4252;
@@ -296,24 +280,7 @@
   .grid-head div, .winner-card h2{ -webkit-text-stroke:0 !important; }
   .winner-overlay{ background: rgba(59,66,82,.78) !important; }
 </style>
-<script>
-(function(){
-  var urls = [
-    'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js',
-    'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js'
-  ];
-  var i = 0;
-  function tryNext(){
-    if(i >= urls.length) return;
-    var el = document.createElement('script');
-    el.src = urls[i++];
-    el.crossOrigin = 'anonymous';
-    el.onerror = tryNext;
-    document.head.appendChild(el);
-  }
-  tryNext();
-})();
-</script>
+<script src="vendor/qrcode.min.js"></script>
 <style>
   .join-alt{ margin-top:22px; padding-top:18px; border-top:2px dashed #e3ddd0; text-align:center; }
   .join-alt .btn{ margin-top:0; }
@@ -595,15 +562,10 @@
     </div>
     <div class="menu-row">
       <h3>Caller voice</h3>
-      <div class="seg" id="menu-engine">
-        <button type="button" data-engine="neural">Greyhound caller</button>
-        <button type="button" data-engine="browser">This device's voice</button>
-      </div>
-      <div class="seg" id="menu-caller" style="margin-top:10px">
-        <button type="button" data-caller="cori">Cori</button>
-        <button type="button" data-caller="lessac">Lessac</button>
-        <button type="button" data-caller="amy">Amy</button>
+      <div class="seg" id="menu-caller">
+        <button type="button" data-caller="heart">Heart</button>
         <button type="button" data-caller="barkley">Barkley the dog</button>
+        <button type="button" data-caller="device">This device's voice</button>
       </div>
       <p class="menu-note" id="caller-status"></p>
     </div>
@@ -759,7 +721,7 @@ let state = {
 };
 
 function loadSettings(){
-  const d = { voice:true, bing:true, engine:'neural', caller:'cori' };
+  const d = { voice:true, bing:true, caller:'heart' };
   try{ const v = JSON.parse(localStorage.getItem('ghb-settings') || '{}'); return Object.assign(d, v); }catch(e){ return d; }
 }
 function saveSettings(){
@@ -933,154 +895,61 @@ function unlockSpeech(){
   try{ window.speechSynthesis.speak(new SpeechSynthesisUtterance('')); }catch(e){}
 }
 
-/* ---------------- downloadable caller voice ----------------
-   A neural voice (Piper, via the vits-web library) that runs inside the TV's
-   browser, so every TV sounds the same. The model downloads once (about 60 MB)
-   and the browser keeps it. Until it's ready, or if it can't load, the
-   device's own voice reads the calls. */
-// Caller voices. "Barkley" is an original goofy cartoon-dog caller: the Cori
-// voice played deeper and slower, with a woof at the end of a win.
+/* ---------------- recorded caller ----------------
+   Every call and announcement is a small MP3 hosted with the game (audio/<voice>/),
+   so every TV sounds the same and nothing is fetched from anywhere else.
+   "This device's voice" uses the browser's built-in speech instead. */
 const CALLER_VOICES = {
-  cori:   { label:'Cori (natural, British)', model:'en_GB-cori-medium', size:'63 MB',  rate:1 },
-  lessac: { label:'Lessac (natural, US)',    model:'en_US-lessac-high', size:'114 MB', rate:1 },
-  amy:    { label:'Amy (bright, US)',        model:'en_US-amy-medium',  size:'63 MB',  rate:1 },
-  barkley:{ label:'Barkley the dog (goofy)', model:'en_GB-cori-medium', size:'63 MB',  rate:0.78, goofy:true }
+  heart:   { label:'Heart' },
+  barkley: { label:'Barkley the dog' },
+  device:  { label:"This device's voice" }
 };
-const NEURAL = {
-  urls: [
-    'https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/+esm',
-    'https://esm.sh/@diffusionstudio/vits-web@1.0.3'
-  ]
-};
-function callerVoice(){ return CALLER_VOICES[state.settings.caller] || CALLER_VOICES.cori; }
-const caller = { model:null, status:'off', progress:0, tts:null, clips:new Map(), queue:[], busy:false, error:'', audio:null };
+const CLIP_KEYS = (()=>{
+  const k = ['open','start','winner','early','back','hello'];
+  for(let c=0;c<5;c++) for(let n=RANGES[c][0]; n<=RANGES[c][1]; n++) k.push(LETTERS[c] + n);
+  return k;
+})();
+const caller = { voice:null, clips:new Map(), status:'off', loaded:0, audio:null };
+
+function callerVoiceKey(){ return CALLER_VOICES[state.settings.caller] ? state.settings.caller : 'heart'; }
 
 function renderCallerStatus(){
   let msg = '';
-  if(state.settings.engine !== 'neural') msg = "Using this device's built-in voice.";
-  else if(caller.status === 'loading') msg = caller.progress
-      ? 'Downloading the ' + callerVoice().label + ' voice… ' + caller.progress + '% (' + callerVoice().size + ', first time only). Using this device\'s voice until it\'s ready.'
-      : 'Loading the Greyhound caller voice…';
-  else if(caller.status === 'ready') msg = callerVoice().label + ' is calling.' + (caller.queue.length ? ' Preparing calls…' : '');
-  else if(caller.status === 'failed') msg = "Couldn't load the Greyhound caller voice, so this device's voice is reading the calls." + (caller.error ? ' (' + caller.error + ')' : '');
+  const v = callerVoiceKey();
+  if(v === 'device') msg = "Using this device's built-in voice.";
+  else if(caller.status === 'loading') msg = 'Loading ' + CALLER_VOICES[v].label + '… ' + Math.round(caller.loaded * 100 / CLIP_KEYS.length) + '%';
+  else if(caller.status === 'ready') msg = CALLER_VOICES[v].label + ' is calling.';
+  else if(caller.status === 'failed') msg = "Couldn't load the recorded calls, so this device's voice is reading them.";
   const a = document.getElementById('caller-status'); if(a) a.textContent = msg;
   const b = document.getElementById('tv-voice-status'); if(b) b.textContent = msg;
 }
 
-async function loadNeural(){
-  const model = callerVoice().model;
-  if(caller.status === 'loading' && caller.model === model) return;
-  if(caller.status === 'ready' && caller.model === model) return;
-  // Switching to a voice with a different model: drop the old clips.
-  if(caller.model !== model){ caller.clips.forEach(u=>{ try{ URL.revokeObjectURL(u); }catch(e){} }); caller.clips = new Map(); caller.queue = []; }
-  caller.model = model;
-  caller.status = 'loading'; caller.progress = 0; caller.error = '';
+// Fetch every clip for the chosen voice up front (about 1 MB) so each call plays instantly.
+async function loadClips(){
+  const v = callerVoiceKey();
+  if(v === 'device'){ caller.status = 'off'; renderCallerStatus(); return; }
+  if(caller.voice === v && (caller.status === 'ready' || caller.status === 'loading')) return;
+  caller.clips.forEach(u=>{ try{ URL.revokeObjectURL(u); }catch(e){} });
+  caller.clips = new Map(); caller.voice = v; caller.status = 'loading'; caller.loaded = 0;
   renderCallerStatus();
-  try{
-    if(!caller.tts){
-      let mod = null, lastErr = null;
-      for(const u of NEURAL.urls){
-        try{ mod = await import(u); if(mod && mod.predict) break; mod = null; }catch(e){ lastErr = e; }
-      }
-      if(!mod) throw lastErr || new Error('voice library unavailable');
-      caller.tts = mod;
-    }
-    const mod = caller.tts;
-    for(let attempt = 1; attempt <= 2; attempt++){
-      let stored = [];
-      try{ stored = (mod.stored ? await mod.stored() : []) || []; }catch(e){}
-      if(!stored.includes(model)){
-        await downloadVoiceChecked(mod, model, (loaded, total)=>{
-          if(caller.model === model){ caller.progress = Math.max(1, Math.min(99, Math.round(loaded * 100 / total))); renderCallerStatus(); }
-        });
-      }
+  const queue = CLIP_KEYS.slice();
+  async function worker(){
+    while(queue.length){
+      const key = queue.shift();
       try{
-        await renderClip('__warm', 'Ready.');
-        break;
-      }catch(e){
-        // A failed download can leave a broken file behind; remove it and try once more.
-        try{ await mod.remove(model); }catch(x){}
-        if(attempt === 2) throw e;
-      }
+        const r = await fetch('audio/' + v + '/' + key + '.mp3');
+        if(!r.ok) throw new Error(r.status);
+        const url = URL.createObjectURL(await r.blob());
+        if(caller.voice !== v){ URL.revokeObjectURL(url); return; }
+        caller.clips.set(key, url);
+      }catch(e){}
+      caller.loaded++;
+      if(caller.loaded % 10 === 0) renderCallerStatus();
     }
-    if(caller.model !== model) return;
-    caller.status = 'ready';
-    queueCalls(gstate.game && gstate.game.status === 'playing' ? gstate.game.sequence : null);
-    renderCallerStatus();
-  }catch(e){
-    if(caller.model !== model) return;
-    caller.status = 'failed';
-    caller.error = (e && e.message ? e.message : String(e)).slice(0,80);
-    renderCallerStatus();
   }
-}
-
-// Download a voice ourselves (with progress, size check and retries) into the
-// library's own storage folder. The library's downloader saves error pages as
-// if they were the voice, which then breaks it until removed.
-const VOICE_SOURCES = [
-  new URL('voices', location.href.split('?')[0].replace(/[^/]*$/, '')).href, // copies hosted with the game
-  'https://huggingface.co/rhasspy/piper-voices/resolve/main',
-  null // the library's own mirror (filled in at runtime)
-];
-async function downloadVoiceChecked(mod, model, onProgress){
-  const rel = mod.PATH_MAP[model];
-  const bases = VOICE_SOURCES.map(b=> b || mod.HF_BASE);
-  const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('piper', { create: true });
-  const names = [rel + '.json', rel];
-  for(let f = 0; f < names.length; f++){
-    const name = names[f].split('/').pop();
-    let ok = false, lastErr = '';
-    for(let attempt = 0; attempt < bases.length * 2 && !ok; attempt++){
-      const url = bases[attempt % bases.length] + '/' + names[f];
-      try{
-        const r = await fetch(url, { cache: 'no-store' });
-        if(!r.ok) throw new Error('server said ' + r.status);
-        const total = +(r.headers.get('content-length') || 0);
-        const reader = r.body.getReader();
-        const chunks = []; let loaded = 0;
-        for(;;){
-          const { done, value } = await reader.read();
-          if(done) break;
-          chunks.push(value); loaded += value.length;
-          if(f === 1 && total && onProgress) onProgress(loaded, total);
-        }
-        if(loaded < 1000 || (total && loaded !== total)) throw new Error('incomplete download');
-        const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
-        await w.write(new Blob(chunks)); await w.close();
-        ok = true;
-      }catch(e){ lastErr = e.message; await new Promise(r=> setTimeout(r, 1000)); }
-    }
-    if(!ok) throw new Error('voice download failed: ' + lastErr);
-  }
-}
-
-async function renderClip(key, text){
-  const blob = await caller.tts.predict({ text, voiceId: caller.model });
-  const url = URL.createObjectURL(blob);
-  caller.clips.set(key, url);
-  return url;
-}
-
-// Pre-render calls in the background so each one plays instantly.
-// During a race the queue follows the race's call order.
-function queueCalls(sequence){
-  const items = sequence && sequence.length ? sequence.slice() : [];
-  if(!items.length){ for(let c=0;c<5;c++) for(let n=RANGES[c][0]; n<=RANGES[c][1]; n++) items.push({ col: LETTERS[c], num: n }); }
-  caller.queue = items.filter(it=> !caller.clips.has(it.col + it.num)).map(it=> [it.col + it.num, callWords(it)]);
-  pumpClips();
-}
-
-async function pumpClips(){
-  if(caller.busy || caller.status !== 'ready') return;
-  caller.busy = true;
-  while(caller.queue.length){
-    const [key, text] = caller.queue.shift();
-    if(caller.clips.has(key)) continue;
-    try{ await renderClip(key, text); }catch(e){}
-    await new Promise(r=> setTimeout(r, 20));
-  }
-  caller.busy = false;
+  await Promise.all([worker(), worker(), worker(), worker()]);
+  if(caller.voice !== v) return;
+  caller.status = caller.clips.size > 70 ? 'ready' : 'failed';
   renderCallerStatus();
 }
 
@@ -1089,30 +958,22 @@ function playClip(url, fallbackText){
     if(!caller.audio) caller.audio = new Audio();
     caller.audio.pause();
     caller.audio.src = url;
-    const v = callerVoice();
-    caller.audio.preservesPitch = false; caller.audio.mozPreservesPitch = false; caller.audio.webkitPreservesPitch = false;
-    caller.audio.playbackRate = v.rate || 1;
     const p = caller.audio.play();
     if(p && p.catch) p.catch(()=> speak(fallbackText));
   }catch(e){ speak(fallbackText); }
 }
 
-function neuralOn(){ return state.role === 'tv' && state.settings.engine === 'neural' && caller.status === 'ready'; }
+// Who makes sound: the TV for the room, or a phone practising alone.
+function makesSound(){ return state.role === 'tv' || state.local; }
 
-// Say a call: the Greyhound caller if its clip is ready, otherwise the device's voice.
-function sayCall(item){
-  const key = item.col + item.num;
-  if(neuralOn() && caller.clips.has(key)) playClip(caller.clips.get(key), callWords(item));
-  else speak(callWords(item));
+// Play a recorded line, or use the device's voice if it isn't available.
+function say(key, fallbackText){
+  if(!makesSound() || !state.settings.voice) return;
+  if(callerVoiceKey() !== 'device' && caller.clips.has(key)) playClip(caller.clips.get(key), fallbackText);
+  else speak(fallbackText);
 }
 
-// Say anything else (winner, early calls): render with the caller voice when it's ready.
-async function sayLine(text){
-  if(callerVoice().goofy && /wins!$/.test(text)) text = text + ' Woof woof!';
-  if(!neuralOn()){ speak(text); return; }
-  try{ const url = await renderClip('line:' + text, text); playClip(url, text); }
-  catch(e){ speak(text); }
-}
+function sayCall(item){ say(item.col + item.num, callWords(item)); }
 
 let wakeLock = null;
 async function keepAwake(){
@@ -1137,10 +998,10 @@ function maybeBing(gs){
   }
   if((gs.game.revealed || 0) > state.lastSoundRevealed){
     state.lastSoundRevealed = gs.game.revealed;
-    if(state.role !== 'tv' && !state.local) return;
+    if(!makesSound()) return;
     const item = gs.game.sequence[gs.game.revealed - 1];
     if(state.settings.bing) playBing();
-    if(state.settings.voice && item) setTimeout(()=> sayCall(item), state.settings.bing ? 250 : 0);
+    if(item) setTimeout(()=> sayCall(item), state.settings.bing ? 250 : 0);
   }
 }
 
@@ -1323,8 +1184,9 @@ async function tryTvCode(attempt, resume){
   broadcastState();
   if(resume && gstate.game.status === 'playing' && !(gstate.winner && gstate.winner.name)) hostLoop();
   renderCallerStatus();
-  if(state.settings.engine === 'neural') loadNeural();
-  if(state.settings.voice) speak(resume ? 'Room ' + code.split('').join(', ') + ' is back.' : 'Room open. Join with the code ' + code.split('').join(', ') + '.');
+  loadClips();
+  const codeWords = code.split('').join(', ');
+  setTimeout(()=> say(resume ? 'back' : 'open', resume ? 'Room ' + codeWords + ' is back.' : 'Room open. Join with the code ' + codeWords + '.'), 1500);
 }
 
 function resumeTvRoom(){
@@ -1400,8 +1262,7 @@ function renderMenu(){
   document.querySelectorAll('#menu-speed button').forEach(b=> b.classList.toggle('on', b.dataset.speed === cur));
   document.querySelectorAll('#menu-voice button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.voice));
   document.querySelectorAll('#menu-bing button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.bing));
-  document.querySelectorAll('#menu-engine button').forEach(b=> b.classList.toggle('on', b.dataset.engine === state.settings.engine));
-  document.querySelectorAll('#menu-caller button').forEach(b=>{ b.classList.toggle('on', b.dataset.caller === state.settings.caller); b.disabled = state.settings.engine !== 'neural'; });
+  document.querySelectorAll('#menu-caller button').forEach(b=> b.classList.toggle('on', b.dataset.caller === callerVoiceKey()));
   renderCallerStatus();
 }
 
@@ -1450,7 +1311,6 @@ function renderTV(gs){
   $('tv-start').textContent = n === 0 ? 'Waiting for players' : 'Start the race';
 
   if(gs.game.status === 'playing'){
-    if(gs.game.startedAt !== state.queuedFor){ state.queuedFor = gs.game.startedAt; if(caller.status === 'ready') queueCalls(gs.game.sequence); }
     showTV('tv-game');
     const md = MODES[gs.game.mode] || MODES.line;
     const pc = PACE[gs.game.paceKey] || PACE.standard;
@@ -1477,7 +1337,7 @@ function renderTV(gs){
     toast.classList.remove('hidden');
     clearTimeout(state.toastTimer);
     state.toastTimer = setTimeout(()=> toast.classList.add('hidden'), 4000);
-    if(state.settings.voice) sayLine(gs.falseCall.name + ' called bingo too early!');
+    say('early', gs.falseCall.name + ' called bingo too early!');
   }
 
   if(gs.winner && gs.winner.name){
@@ -1488,7 +1348,7 @@ function renderTV(gs){
     $('next-speed').classList.remove('hidden');
     renderNextSpeed();
     $('winner-overlay').classList.remove('hidden');
-    if(fresh && state.settings.voice) setTimeout(()=> sayLine('Bingo! ' + gs.winner.name + ' wins!'), 400);
+    if(fresh) setTimeout(()=> say('winner', 'Bingo! ' + gs.winner.name + ' wins!'), 400);
   } else {
     $('winner-overlay').classList.add('hidden');
   }
@@ -1621,6 +1481,7 @@ function startPractice(){
   state.marked = new Array(25).fill(false);
   gstate.round = 1;
   gstate.roster = [state.name];
+  loadClips();
   enterLobby();
 }
 
@@ -2048,20 +1909,13 @@ document.querySelectorAll('#menu-speed button').forEach(b=> b.addEventListener('
 }));
 document.querySelectorAll('#menu-voice button').forEach(b=> b.addEventListener('click', ()=>{
   state.settings.voice = b.dataset.v === 'on'; saveSettings(); renderMenu();
-  if(state.settings.voice) sayLine('Calls will be read aloud.'); else if('speechSynthesis' in window) window.speechSynthesis.cancel();
-}));
-document.querySelectorAll('#menu-engine button').forEach(b=> b.addEventListener('click', ()=>{
-  state.settings.engine = b.dataset.engine; saveSettings(); renderMenu();
-  if(state.settings.engine === 'neural'){
-    if(caller.status === 'failed') caller.status = 'off';
-    if(caller.status === 'ready') sayLine('This is ' + callerVoice().label.split(' (')[0] + '.'); else loadNeural();
-  } else speak("This is this device's voice.");
+  if(state.settings.voice) say('hello', 'Calls will be read aloud.');
+  else { if('speechSynthesis' in window) window.speechSynthesis.cancel(); if(caller.audio) caller.audio.pause(); }
 }));
 document.querySelectorAll('#menu-caller button').forEach(b=> b.addEventListener('click', async ()=>{
   state.settings.caller = b.dataset.caller; saveSettings(); renderMenu();
-  if(caller.status === 'failed') caller.status = 'off';
-  await loadNeural();
-  if(caller.status === 'ready') sayLine('Hi! I\'m ' + callerVoice().label.split(' (')[0] + ', and I\'ll be calling tonight. B, 7.');
+  await loadClips();
+  say('hello', "Hi! I'll be calling tonight.");
 }));
 document.querySelectorAll('#menu-bing button').forEach(b=> b.addEventListener('click', ()=>{
   state.settings.bing = b.dataset.v === 'on'; saveSettings(); renderMenu();
