@@ -599,6 +599,12 @@
         <button type="button" data-engine="neural">Greyhound caller</button>
         <button type="button" data-engine="browser">This device's voice</button>
       </div>
+      <div class="seg" id="menu-caller" style="margin-top:10px">
+        <button type="button" data-caller="lessac">Lessac</button>
+        <button type="button" data-caller="amy">Amy</button>
+        <button type="button" data-caller="cori">Cori</button>
+        <button type="button" data-caller="barkley">Barkley the dog</button>
+      </div>
       <p class="menu-note" id="caller-status"></p>
     </div>
     <div class="menu-row">
@@ -753,7 +759,7 @@ let state = {
 };
 
 function loadSettings(){
-  const d = { voice:true, bing:true, engine:'neural' };
+  const d = { voice:true, bing:true, engine:'neural', caller:'lessac' };
   try{ const v = JSON.parse(localStorage.getItem('ghb-settings') || '{}'); return Object.assign(d, v); }catch(e){ return d; }
 }
 function saveSettings(){
@@ -932,58 +938,119 @@ function unlockSpeech(){
    browser, so every TV sounds the same. The model downloads once (about 60 MB)
    and the browser keeps it. Until it's ready, or if it can't load, the
    device's own voice reads the calls. */
+// Caller voices. "Barkley" is an original goofy cartoon-dog caller: the Lessac
+// voice played deeper and slower, with a woof at the end of a win.
+const CALLER_VOICES = {
+  lessac: { label:'Lessac (natural, US)', model:'en_US-lessac-high',  size:'114 MB', rate:1 },
+  amy:    { label:'Amy (bright, US)',     model:'en_US-amy-medium',   size:'63 MB',  rate:1 },
+  cori:   { label:'Cori (British)',       model:'en_GB-cori-medium',  size:'63 MB',  rate:1 },
+  barkley:{ label:'Barkley the dog (goofy)', model:'en_US-lessac-high', size:'114 MB', rate:0.78, goofy:true }
+};
 const NEURAL = {
-  voiceId: 'en_US-hfc_female-medium',
   urls: [
     'https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/+esm',
     'https://esm.sh/@diffusionstudio/vits-web@1.0.3'
   ]
 };
-const caller = { status:'off', progress:0, tts:null, clips:new Map(), queue:[], busy:false, error:'', audio:null };
+function callerVoice(){ return CALLER_VOICES[state.settings.caller] || CALLER_VOICES.lessac; }
+const caller = { model:null, status:'off', progress:0, tts:null, clips:new Map(), queue:[], busy:false, error:'', audio:null };
 
 function renderCallerStatus(){
   let msg = '';
   if(state.settings.engine !== 'neural') msg = "Using this device's built-in voice.";
   else if(caller.status === 'loading') msg = caller.progress
-      ? 'Downloading the Greyhound caller voice… ' + caller.progress + '% (about 60 MB, first time only). Using this device\'s voice until it\'s ready.'
+      ? 'Downloading the ' + callerVoice().label + ' voice… ' + caller.progress + '% (' + callerVoice().size + ', first time only). Using this device\'s voice until it\'s ready.'
       : 'Loading the Greyhound caller voice…';
-  else if(caller.status === 'ready') msg = 'Greyhound caller voice ready.' + (caller.queue.length ? ' Preparing calls…' : '');
+  else if(caller.status === 'ready') msg = callerVoice().label + ' is calling.' + (caller.queue.length ? ' Preparing calls…' : '');
   else if(caller.status === 'failed') msg = "Couldn't load the Greyhound caller voice, so this device's voice is reading the calls." + (caller.error ? ' (' + caller.error + ')' : '');
   const a = document.getElementById('caller-status'); if(a) a.textContent = msg;
   const b = document.getElementById('tv-voice-status'); if(b) b.textContent = msg;
 }
 
 async function loadNeural(){
-  if(caller.status === 'ready' || caller.status === 'loading') return;
+  const model = callerVoice().model;
+  if(caller.status === 'loading' && caller.model === model) return;
+  if(caller.status === 'ready' && caller.model === model) return;
+  // Switching to a voice with a different model: drop the old clips.
+  if(caller.model !== model){ caller.clips.forEach(u=>{ try{ URL.revokeObjectURL(u); }catch(e){} }); caller.clips = new Map(); caller.queue = []; }
+  caller.model = model;
   caller.status = 'loading'; caller.progress = 0; caller.error = '';
   renderCallerStatus();
   try{
-    let mod = null, lastErr = null;
-    for(const u of NEURAL.urls){
-      try{ mod = await import(u); if(mod && mod.predict) break; mod = null; }catch(e){ lastErr = e; }
+    if(!caller.tts){
+      let mod = null, lastErr = null;
+      for(const u of NEURAL.urls){
+        try{ mod = await import(u); if(mod && mod.predict) break; mod = null; }catch(e){ lastErr = e; }
+      }
+      if(!mod) throw lastErr || new Error('voice library unavailable');
+      caller.tts = mod;
     }
-    if(!mod) throw lastErr || new Error('voice library unavailable');
-    caller.tts = mod;
-    let stored = [];
-    try{ stored = (mod.stored ? await mod.stored() : []) || []; }catch(e){}
-    if(!stored.includes(NEURAL.voiceId) && mod.download){
-      await mod.download(NEURAL.voiceId, (p)=>{
-        if(p && p.total){ caller.progress = Math.max(1, Math.min(99, Math.round(p.loaded * 100 / p.total))); renderCallerStatus(); }
-      });
+    const mod = caller.tts;
+    for(let attempt = 1; attempt <= 2; attempt++){
+      let stored = [];
+      try{ stored = (mod.stored ? await mod.stored() : []) || []; }catch(e){}
+      if(!stored.includes(model)){
+        await downloadVoiceChecked(mod, model, (loaded, total)=>{
+          if(caller.model === model){ caller.progress = Math.max(1, Math.min(99, Math.round(loaded * 100 / total))); renderCallerStatus(); }
+        });
+      }
+      try{
+        await renderClip('__warm', 'Ready.');
+        break;
+      }catch(e){
+        // A failed download can leave a broken file behind; remove it and try once more.
+        try{ await mod.remove(model); }catch(x){}
+        if(attempt === 2) throw e;
+      }
     }
-    await renderClip('__warm', 'Ready.');
+    if(caller.model !== model) return;
     caller.status = 'ready';
     queueCalls(gstate.game && gstate.game.status === 'playing' ? gstate.game.sequence : null);
     renderCallerStatus();
   }catch(e){
+    if(caller.model !== model) return;
     caller.status = 'failed';
     caller.error = (e && e.message ? e.message : String(e)).slice(0,80);
     renderCallerStatus();
   }
 }
 
+// Download a voice ourselves (with progress, size check and retries) into the
+// library's own storage folder. The library's downloader saves error pages as
+// if they were the voice, which then breaks it until removed.
+async function downloadVoiceChecked(mod, model, onProgress){
+  const base = mod.HF_BASE + '/' + mod.PATH_MAP[model];
+  const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('piper', { create: true });
+  const files = [base + '.json', base];
+  for(let f = 0; f < files.length; f++){
+    const url = files[f];
+    const name = url.split('/').pop();
+    let ok = false, lastErr = '';
+    for(let attempt = 1; attempt <= 3 && !ok; attempt++){
+      try{
+        const r = await fetch(url, { cache: 'no-store' });
+        if(!r.ok) throw new Error('server said ' + r.status);
+        const total = +(r.headers.get('content-length') || 0);
+        const reader = r.body.getReader();
+        const chunks = []; let loaded = 0;
+        for(;;){
+          const { done, value } = await reader.read();
+          if(done) break;
+          chunks.push(value); loaded += value.length;
+          if(f === 1 && total && onProgress) onProgress(loaded, total);
+        }
+        if(loaded < 1000 || (total && loaded !== total)) throw new Error('incomplete download');
+        const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+        await w.write(new Blob(chunks)); await w.close();
+        ok = true;
+      }catch(e){ lastErr = e.message; await new Promise(r=> setTimeout(r, 1500)); }
+    }
+    if(!ok) throw new Error('voice download failed: ' + lastErr);
+  }
+}
+
 async function renderClip(key, text){
-  const blob = await caller.tts.predict({ text, voiceId: NEURAL.voiceId });
+  const blob = await caller.tts.predict({ text, voiceId: caller.model });
   const url = URL.createObjectURL(blob);
   caller.clips.set(key, url);
   return url;
@@ -1016,6 +1083,9 @@ function playClip(url, fallbackText){
     if(!caller.audio) caller.audio = new Audio();
     caller.audio.pause();
     caller.audio.src = url;
+    const v = callerVoice();
+    caller.audio.preservesPitch = false; caller.audio.mozPreservesPitch = false; caller.audio.webkitPreservesPitch = false;
+    caller.audio.playbackRate = v.rate || 1;
     const p = caller.audio.play();
     if(p && p.catch) p.catch(()=> speak(fallbackText));
   }catch(e){ speak(fallbackText); }
@@ -1032,6 +1102,7 @@ function sayCall(item){
 
 // Say anything else (winner, early calls): render with the caller voice when it's ready.
 async function sayLine(text){
+  if(callerVoice().goofy && /wins!$/.test(text)) text = text + ' Woof woof!';
   if(!neuralOn()){ speak(text); return; }
   try{ const url = await renderClip('line:' + text, text); playClip(url, text); }
   catch(e){ speak(text); }
@@ -1324,6 +1395,7 @@ function renderMenu(){
   document.querySelectorAll('#menu-voice button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.voice));
   document.querySelectorAll('#menu-bing button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.bing));
   document.querySelectorAll('#menu-engine button').forEach(b=> b.classList.toggle('on', b.dataset.engine === state.settings.engine));
+  document.querySelectorAll('#menu-caller button').forEach(b=>{ b.classList.toggle('on', b.dataset.caller === state.settings.caller); b.disabled = state.settings.engine !== 'neural'; });
   renderCallerStatus();
 }
 
@@ -1431,7 +1503,7 @@ function saveSession(){
 function loadSession(){
   try{
     const v = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-    if(v && v.room && Date.now() - v.ts < 6*3600*1000) return v;
+    if(v && v.room && Date.now() - v.ts < 20*60*1000) return v;
   }catch(e){}
   return null;
 }
@@ -1446,6 +1518,7 @@ function joinRoom(){
   initAudio();
   unlockSpeech();
   keepAwake();
+  if(state.resume){ state.resume = null; state.pid = makeId(); }
   const room = $('in-room').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
   const name = $('in-name').value.trim();
   if(room.length !== 4){ flashJoinError("Enter the 4-letter code shown on the TV."); return; }
@@ -1469,7 +1542,10 @@ function joinRoom(){
 async function joinViaRelay(room){
   const t = topics(room);
   let reachedAny = false;
-  for(const url of BROKERS.concat(BROKERS)){
+  const attemptId = state.joinAttempt = (state.joinAttempt || 0) + 1;
+  const list = state.resume ? BROKERS : BROKERS.concat(BROKERS);
+  for(const url of list){
+    if(attemptId !== state.joinAttempt) return; // superseded by a newer join
     const client = await connectBroker(url, { will: { topic: t.up, payload: JSON.stringify({ type:'leave', pid: state.pid }), qos: 1, retain: false } });
     if(!client) continue;
     reachedAny = true;
@@ -1480,9 +1556,9 @@ async function joinViaRelay(room){
       };
       client.on('message', onMsg);
       client.subscribe(t.state, { qos:1 });
-      setTimeout(()=>{ if(!done){ done = true; res(null); } }, 5000);
+      setTimeout(()=>{ if(!done){ done = true; res(null); } }, state.resume ? 3000 : 5000);
     });
-    if(!found){ try{ client.end(true); }catch(e){} continue; }
+    if(!found || attemptId !== state.joinAttempt){ try{ client.end(true); }catch(e){} if(attemptId !== state.joinAttempt) return; continue; }
 
     state.client = client;
     client.options.reconnectPeriod = 2000;
@@ -1504,17 +1580,19 @@ async function joinViaRelay(room){
     }
     state.resume = null;
     sendToHost({ type:'join', name: state.name });
-    state.pingTimer = setInterval(()=> sendToHost({ type:'ping', name: state.name }), 5000);
+    state.pingTimer = setInterval(()=>{ sendToHost({ type:'ping', name: state.name }); saveSession(); }, 5000);
     document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) sendToHost({ type:'ping', name: state.name }); });
     window.addEventListener('pagehide', ()=> sendToHost({ type:'leave' }));
     enterLobby();
     return;
   }
+  if(attemptId !== state.joinAttempt) return;
   resetJoinButton();
   if(state.resume){
     state.resume = null;
     clearSession();
-    flashJoinError("Room " + room + " has closed. Enter the code shown on the TV to join a new one.");
+    $('in-room').value = '';
+    flashJoinError("Your last room (" + room + ") has closed. Enter the code shown on the TV.");
     return;
   }
   flashJoinError(reachedAny
@@ -1970,8 +2048,14 @@ document.querySelectorAll('#menu-engine button').forEach(b=> b.addEventListener(
   state.settings.engine = b.dataset.engine; saveSettings(); renderMenu();
   if(state.settings.engine === 'neural'){
     if(caller.status === 'failed') caller.status = 'off';
-    if(caller.status === 'ready') sayLine('This is the Greyhound caller.'); else loadNeural();
+    if(caller.status === 'ready') sayLine('This is ' + callerVoice().label.split(' (')[0] + '.'); else loadNeural();
   } else speak("This is this device's voice.");
+}));
+document.querySelectorAll('#menu-caller button').forEach(b=> b.addEventListener('click', async ()=>{
+  state.settings.caller = b.dataset.caller; saveSettings(); renderMenu();
+  if(caller.status === 'failed') caller.status = 'off';
+  await loadNeural();
+  if(caller.status === 'ready') sayLine('Hi! I\'m ' + callerVoice().label.split(' (')[0] + ', and I\'ll be calling tonight. B, 7.');
 }));
 document.querySelectorAll('#menu-bing button').forEach(b=> b.addEventListener('click', ()=>{
   state.settings.bing = b.dataset.v === 'on'; saveSettings(); renderMenu();
@@ -2003,8 +2087,7 @@ if(IS_TV){
     state.pid = saved.pid;
     $('in-room').value = saved.room;
     $('in-name').value = saved.name;
-    $('btn-join').disabled = true;
-    $('btn-join').textContent = 'Rejoining ' + saved.room + '…';
+    flashJoinError('Rejoining room ' + saved.room + '… (or enter a new code and tap Join)');
     waitForLib(()=>{
       state.room = saved.room;
       state.name = saved.name;
