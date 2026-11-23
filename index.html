@@ -559,6 +559,7 @@
       </div>
       <button class="btn" id="tv-start">Start the race</button>
       <p class="tv-hint">Players vote on their phones. Start here, or anyone can start from their phone.</p>
+      <p class="tv-hint" id="tv-voice-status"></p>
     </div>
   </section>
 
@@ -591,6 +592,14 @@
         <button type="button" data-speed="blazing">Blazing</button>
       </div>
       <p class="menu-note">Changes take effect right away and stay for the next rounds.</p>
+    </div>
+    <div class="menu-row">
+      <h3>Caller voice</h3>
+      <div class="seg" id="menu-engine">
+        <button type="button" data-engine="neural">Greyhound caller</button>
+        <button type="button" data-engine="browser">This device's voice</button>
+      </div>
+      <p class="menu-note" id="caller-status"></p>
     </div>
     <div class="menu-row">
       <h3>Read the numbers aloud</h3>
@@ -744,7 +753,7 @@ let state = {
 };
 
 function loadSettings(){
-  const d = { voice:true, bing:true };
+  const d = { voice:true, bing:true, engine:'neural' };
   try{ const v = JSON.parse(localStorage.getItem('ghb-settings') || '{}'); return Object.assign(d, v); }catch(e){ return d; }
 }
 function saveSettings(){
@@ -918,6 +927,116 @@ function unlockSpeech(){
   try{ window.speechSynthesis.speak(new SpeechSynthesisUtterance('')); }catch(e){}
 }
 
+/* ---------------- downloadable caller voice ----------------
+   A neural voice (Piper, via the vits-web library) that runs inside the TV's
+   browser, so every TV sounds the same. The model downloads once (about 60 MB)
+   and the browser keeps it. Until it's ready, or if it can't load, the
+   device's own voice reads the calls. */
+const NEURAL = {
+  voiceId: 'en_US-hfc_female-medium',
+  urls: [
+    'https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/+esm',
+    'https://esm.sh/@diffusionstudio/vits-web@1.0.3'
+  ]
+};
+const caller = { status:'off', progress:0, tts:null, clips:new Map(), queue:[], busy:false, error:'', audio:null };
+
+function renderCallerStatus(){
+  let msg = '';
+  if(state.settings.engine !== 'neural') msg = "Using this device's built-in voice.";
+  else if(caller.status === 'loading') msg = caller.progress
+      ? 'Downloading the Greyhound caller voice… ' + caller.progress + '% (about 60 MB, first time only). Using this device\'s voice until it\'s ready.'
+      : 'Loading the Greyhound caller voice…';
+  else if(caller.status === 'ready') msg = 'Greyhound caller voice ready.' + (caller.queue.length ? ' Preparing calls…' : '');
+  else if(caller.status === 'failed') msg = "Couldn't load the Greyhound caller voice, so this device's voice is reading the calls." + (caller.error ? ' (' + caller.error + ')' : '');
+  const a = document.getElementById('caller-status'); if(a) a.textContent = msg;
+  const b = document.getElementById('tv-voice-status'); if(b) b.textContent = msg;
+}
+
+async function loadNeural(){
+  if(caller.status === 'ready' || caller.status === 'loading') return;
+  caller.status = 'loading'; caller.progress = 0; caller.error = '';
+  renderCallerStatus();
+  try{
+    let mod = null, lastErr = null;
+    for(const u of NEURAL.urls){
+      try{ mod = await import(u); if(mod && mod.predict) break; mod = null; }catch(e){ lastErr = e; }
+    }
+    if(!mod) throw lastErr || new Error('voice library unavailable');
+    caller.tts = mod;
+    let stored = [];
+    try{ stored = (mod.stored ? await mod.stored() : []) || []; }catch(e){}
+    if(!stored.includes(NEURAL.voiceId) && mod.download){
+      await mod.download(NEURAL.voiceId, (p)=>{
+        if(p && p.total){ caller.progress = Math.max(1, Math.min(99, Math.round(p.loaded * 100 / p.total))); renderCallerStatus(); }
+      });
+    }
+    await renderClip('__warm', 'Ready.');
+    caller.status = 'ready';
+    queueCalls(gstate.game && gstate.game.status === 'playing' ? gstate.game.sequence : null);
+    renderCallerStatus();
+  }catch(e){
+    caller.status = 'failed';
+    caller.error = (e && e.message ? e.message : String(e)).slice(0,80);
+    renderCallerStatus();
+  }
+}
+
+async function renderClip(key, text){
+  const blob = await caller.tts.predict({ text, voiceId: NEURAL.voiceId });
+  const url = URL.createObjectURL(blob);
+  caller.clips.set(key, url);
+  return url;
+}
+
+// Pre-render calls in the background so each one plays instantly.
+// During a race the queue follows the race's call order.
+function queueCalls(sequence){
+  const items = sequence && sequence.length ? sequence.slice() : [];
+  if(!items.length){ for(let c=0;c<5;c++) for(let n=RANGES[c][0]; n<=RANGES[c][1]; n++) items.push({ col: LETTERS[c], num: n }); }
+  caller.queue = items.filter(it=> !caller.clips.has(it.col + it.num)).map(it=> [it.col + it.num, callWords(it)]);
+  pumpClips();
+}
+
+async function pumpClips(){
+  if(caller.busy || caller.status !== 'ready') return;
+  caller.busy = true;
+  while(caller.queue.length){
+    const [key, text] = caller.queue.shift();
+    if(caller.clips.has(key)) continue;
+    try{ await renderClip(key, text); }catch(e){}
+    await new Promise(r=> setTimeout(r, 20));
+  }
+  caller.busy = false;
+  renderCallerStatus();
+}
+
+function playClip(url, fallbackText){
+  try{
+    if(!caller.audio) caller.audio = new Audio();
+    caller.audio.pause();
+    caller.audio.src = url;
+    const p = caller.audio.play();
+    if(p && p.catch) p.catch(()=> speak(fallbackText));
+  }catch(e){ speak(fallbackText); }
+}
+
+function neuralOn(){ return state.role === 'tv' && state.settings.engine === 'neural' && caller.status === 'ready'; }
+
+// Say a call: the Greyhound caller if its clip is ready, otherwise the device's voice.
+function sayCall(item){
+  const key = item.col + item.num;
+  if(neuralOn() && caller.clips.has(key)) playClip(caller.clips.get(key), callWords(item));
+  else speak(callWords(item));
+}
+
+// Say anything else (winner, early calls): render with the caller voice when it's ready.
+async function sayLine(text){
+  if(!neuralOn()){ speak(text); return; }
+  try{ const url = await renderClip('line:' + text, text); playClip(url, text); }
+  catch(e){ speak(text); }
+}
+
 let wakeLock = null;
 async function keepAwake(){
   try{
@@ -944,7 +1063,7 @@ function maybeBing(gs){
     if(state.role !== 'tv' && !state.local) return;
     const item = gs.game.sequence[gs.game.revealed - 1];
     if(state.settings.bing) playBing();
-    if(state.settings.voice && item) setTimeout(()=> speak(callWords(item)), state.settings.bing ? 250 : 0);
+    if(state.settings.voice && item) setTimeout(()=> sayCall(item), state.settings.bing ? 250 : 0);
   }
 }
 
@@ -1126,6 +1245,8 @@ async function tryTvCode(attempt, resume){
   $('tv-menu-btn').classList.remove('hidden');
   broadcastState();
   if(resume && gstate.game.status === 'playing' && !(gstate.winner && gstate.winner.name)) hostLoop();
+  renderCallerStatus();
+  if(state.settings.engine === 'neural') loadNeural();
   if(state.settings.voice) speak(resume ? 'Room ' + code.split('').join(', ') + ' is back.' : 'Room open. Join with the code ' + code.split('').join(', ') + '.');
 }
 
@@ -1202,6 +1323,8 @@ function renderMenu(){
   document.querySelectorAll('#menu-speed button').forEach(b=> b.classList.toggle('on', b.dataset.speed === cur));
   document.querySelectorAll('#menu-voice button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.voice));
   document.querySelectorAll('#menu-bing button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.bing));
+  document.querySelectorAll('#menu-engine button').forEach(b=> b.classList.toggle('on', b.dataset.engine === state.settings.engine));
+  renderCallerStatus();
 }
 
 function openMenu(){ renderMenu(); $('tv-menu').classList.remove('hidden'); $('tv-menu-close').focus(); }
@@ -1249,6 +1372,7 @@ function renderTV(gs){
   $('tv-start').textContent = n === 0 ? 'Waiting for players' : 'Start the race';
 
   if(gs.game.status === 'playing'){
+    if(gs.game.startedAt !== state.queuedFor){ state.queuedFor = gs.game.startedAt; if(caller.status === 'ready') queueCalls(gs.game.sequence); }
     showTV('tv-game');
     const md = MODES[gs.game.mode] || MODES.line;
     const pc = PACE[gs.game.paceKey] || PACE.standard;
@@ -1275,7 +1399,7 @@ function renderTV(gs){
     toast.classList.remove('hidden');
     clearTimeout(state.toastTimer);
     state.toastTimer = setTimeout(()=> toast.classList.add('hidden'), 4000);
-    if(state.settings.voice) speak(gs.falseCall.name + ' called bingo too early!');
+    if(state.settings.voice) sayLine(gs.falseCall.name + ' called bingo too early!');
   }
 
   if(gs.winner && gs.winner.name){
@@ -1286,7 +1410,7 @@ function renderTV(gs){
     $('next-speed').classList.remove('hidden');
     renderNextSpeed();
     $('winner-overlay').classList.remove('hidden');
-    if(fresh && state.settings.voice) setTimeout(()=> speak('Bingo! ' + gs.winner.name + ' wins!'), 400);
+    if(fresh && state.settings.voice) setTimeout(()=> sayLine('Bingo! ' + gs.winner.name + ' wins!'), 400);
   } else {
     $('winner-overlay').classList.add('hidden');
   }
@@ -1840,7 +1964,14 @@ document.querySelectorAll('#menu-speed button').forEach(b=> b.addEventListener('
 }));
 document.querySelectorAll('#menu-voice button').forEach(b=> b.addEventListener('click', ()=>{
   state.settings.voice = b.dataset.v === 'on'; saveSettings(); renderMenu();
-  if(state.settings.voice) speak('Calls will be read aloud.'); else if('speechSynthesis' in window) window.speechSynthesis.cancel();
+  if(state.settings.voice) sayLine('Calls will be read aloud.'); else if('speechSynthesis' in window) window.speechSynthesis.cancel();
+}));
+document.querySelectorAll('#menu-engine button').forEach(b=> b.addEventListener('click', ()=>{
+  state.settings.engine = b.dataset.engine; saveSettings(); renderMenu();
+  if(state.settings.engine === 'neural'){
+    if(caller.status === 'failed') caller.status = 'off';
+    if(caller.status === 'ready') sayLine('This is the Greyhound caller.'); else loadNeural();
+  } else speak("This is this device's voice.");
 }));
 document.querySelectorAll('#menu-bing button').forEach(b=> b.addEventListener('click', ()=>{
   state.settings.bing = b.dataset.v === 'on'; saveSettings(); renderMenu();
