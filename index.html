@@ -1927,6 +1927,9 @@ $('in-room').addEventListener('input', (e)=>{
   e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
 });
 
+// Earlier versions stored large downloaded voice files in the browser; free that space.
+(async()=>{ try{ const root = await navigator.storage.getDirectory(); await root.removeEntry('piper', { recursive: true }); }catch(e){} })();
+
 if(IS_TV){
   document.body.classList.add('tv-mode');
   document.title = 'Greyhound Speed Bingo · TV';
