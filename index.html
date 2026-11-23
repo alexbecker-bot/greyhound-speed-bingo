@@ -600,9 +600,9 @@
         <button type="button" data-engine="browser">This device's voice</button>
       </div>
       <div class="seg" id="menu-caller" style="margin-top:10px">
+        <button type="button" data-caller="cori">Cori</button>
         <button type="button" data-caller="lessac">Lessac</button>
         <button type="button" data-caller="amy">Amy</button>
-        <button type="button" data-caller="cori">Cori</button>
         <button type="button" data-caller="barkley">Barkley the dog</button>
       </div>
       <p class="menu-note" id="caller-status"></p>
@@ -759,7 +759,7 @@ let state = {
 };
 
 function loadSettings(){
-  const d = { voice:true, bing:true, engine:'neural', caller:'lessac' };
+  const d = { voice:true, bing:true, engine:'neural', caller:'cori' };
   try{ const v = JSON.parse(localStorage.getItem('ghb-settings') || '{}'); return Object.assign(d, v); }catch(e){ return d; }
 }
 function saveSettings(){
@@ -938,13 +938,13 @@ function unlockSpeech(){
    browser, so every TV sounds the same. The model downloads once (about 60 MB)
    and the browser keeps it. Until it's ready, or if it can't load, the
    device's own voice reads the calls. */
-// Caller voices. "Barkley" is an original goofy cartoon-dog caller: the Lessac
+// Caller voices. "Barkley" is an original goofy cartoon-dog caller: the Cori
 // voice played deeper and slower, with a woof at the end of a win.
 const CALLER_VOICES = {
-  lessac: { label:'Lessac (natural, US)', model:'en_US-lessac-high',  size:'114 MB', rate:1 },
-  amy:    { label:'Amy (bright, US)',     model:'en_US-amy-medium',   size:'63 MB',  rate:1 },
-  cori:   { label:'Cori (British)',       model:'en_GB-cori-medium',  size:'63 MB',  rate:1 },
-  barkley:{ label:'Barkley the dog (goofy)', model:'en_US-lessac-high', size:'114 MB', rate:0.78, goofy:true }
+  cori:   { label:'Cori (natural, British)', model:'en_GB-cori-medium', size:'63 MB',  rate:1 },
+  lessac: { label:'Lessac (natural, US)',    model:'en_US-lessac-high', size:'114 MB', rate:1 },
+  amy:    { label:'Amy (bright, US)',        model:'en_US-amy-medium',  size:'63 MB',  rate:1 },
+  barkley:{ label:'Barkley the dog (goofy)', model:'en_GB-cori-medium', size:'63 MB',  rate:0.78, goofy:true }
 };
 const NEURAL = {
   urls: [
@@ -952,7 +952,7 @@ const NEURAL = {
     'https://esm.sh/@diffusionstudio/vits-web@1.0.3'
   ]
 };
-function callerVoice(){ return CALLER_VOICES[state.settings.caller] || CALLER_VOICES.lessac; }
+function callerVoice(){ return CALLER_VOICES[state.settings.caller] || CALLER_VOICES.cori; }
 const caller = { model:null, status:'off', progress:0, tts:null, clips:new Map(), queue:[], busy:false, error:'', audio:null };
 
 function renderCallerStatus(){
@@ -1018,15 +1018,21 @@ async function loadNeural(){
 // Download a voice ourselves (with progress, size check and retries) into the
 // library's own storage folder. The library's downloader saves error pages as
 // if they were the voice, which then breaks it until removed.
+const VOICE_SOURCES = [
+  new URL('voices', location.href.split('?')[0].replace(/[^/]*$/, '')).href, // copies hosted with the game
+  'https://huggingface.co/rhasspy/piper-voices/resolve/main',
+  null // the library's own mirror (filled in at runtime)
+];
 async function downloadVoiceChecked(mod, model, onProgress){
-  const base = mod.HF_BASE + '/' + mod.PATH_MAP[model];
+  const rel = mod.PATH_MAP[model];
+  const bases = VOICE_SOURCES.map(b=> b || mod.HF_BASE);
   const dir = await (await navigator.storage.getDirectory()).getDirectoryHandle('piper', { create: true });
-  const files = [base + '.json', base];
-  for(let f = 0; f < files.length; f++){
-    const url = files[f];
-    const name = url.split('/').pop();
+  const names = [rel + '.json', rel];
+  for(let f = 0; f < names.length; f++){
+    const name = names[f].split('/').pop();
     let ok = false, lastErr = '';
-    for(let attempt = 1; attempt <= 3 && !ok; attempt++){
+    for(let attempt = 0; attempt < bases.length * 2 && !ok; attempt++){
+      const url = bases[attempt % bases.length] + '/' + names[f];
       try{
         const r = await fetch(url, { cache: 'no-store' });
         if(!r.ok) throw new Error('server said ' + r.status);
@@ -1043,7 +1049,7 @@ async function downloadVoiceChecked(mod, model, onProgress){
         const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
         await w.write(new Blob(chunks)); await w.close();
         ok = true;
-      }catch(e){ lastErr = e.message; await new Promise(r=> setTimeout(r, 1500)); }
+      }catch(e){ lastErr = e.message; await new Promise(r=> setTimeout(r, 1000)); }
     }
     if(!ok) throw new Error('voice download failed: ' + lastErr);
   }
