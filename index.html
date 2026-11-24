@@ -1797,7 +1797,7 @@ function tryClaim(){
     return;
   }
   if(gstate.winner && gstate.winner.name){
-    flashStatus(`Too slow! ${gstate.winner.name} already won.`);
+    flashStatus(gstate.winner.name === state.name ? 'You already won this round!' : `Too slow! ${gstate.winner.name} already won.`);
     return;
   }
   if(state.isHost){
