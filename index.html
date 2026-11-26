@@ -306,7 +306,7 @@
   .tv-head-right{ display:flex; align-items:center; gap:1.5vw; }
   .tv-menu-btn{ font:inherit; font-weight:900; font-size:clamp(14px,1.3vw,24px); padding:10px 22px; border-radius:999px; border:2px solid #d9d3c5; background:#fffdf8; color:var(--ink); cursor:pointer; }
   .tv-menu{ position:fixed; inset:0; z-index:60; background:rgba(59,66,82,.6); display:flex; align-items:center; justify-content:center; padding:20px; }
-  .tv-menu-card{ background:var(--cream); border:2px solid #d9d3c5; border-radius:28px; padding:36px 40px; width:min(760px,100%); color:var(--ink); box-shadow:0 10px 30px rgba(59,66,82,.25); }
+  .tv-menu-card{ max-height:calc(100vh - 40px); overflow-y:auto; background:var(--cream); border:2px solid #d9d3c5; border-radius:28px; padding:36px 40px; width:min(760px,100%); color:var(--ink); box-shadow:0 10px 30px rgba(59,66,82,.25); }
   .tv-menu-card h2{ font-size:clamp(28px,2.6vw,46px); margin-bottom:12px; }
   .menu-row{ padding:16px 0; border-bottom:1px solid #e3ddd0; }
   .menu-row h3{ font-size:clamp(16px,1.4vw,24px); color:var(--red); margin-bottom:10px; }
@@ -577,6 +577,15 @@
       <h3>Bing sound</h3>
       <div class="seg" id="menu-bing"><button type="button" data-v="on">On</button><button type="button" data-v="off">Off</button></div>
     </div>
+    <div class="menu-row">
+      <h3>Called-number hints on phones</h3>
+      <div class="seg" id="menu-hint">
+        <button type="button" data-hint="off">Off</button>
+        <button type="button" data-hint="3s">3 seconds</button>
+        <button type="button" data-hint="stay">Until tapped</button>
+      </div>
+      <p class="menu-note">Highlights a called number on each player's card so it's easy to spot. "3 seconds" shows it briefly; "Until tapped" keeps it lit until the player marks it.</p>
+    </div>
     <button class="btn" id="tv-menu-close">Done</button>
   </div>
 </div>
@@ -717,11 +726,12 @@ let state = {
   tvBoardBuilt: false,
   lastNeedSent: null,
   lastFalseAt: 0,
+  seenAt: {}, seenGame: null, hintTimer: null,
   settings: loadSettings(),
 };
 
 function loadSettings(){
-  const d = { voice:true, bing:true, caller:'heart' };
+  const d = { voice:true, bing:true, caller:'heart', hint:'stay' };
   try{ const v = JSON.parse(localStorage.getItem('ghb-settings') || '{}'); return Object.assign(d, v); }catch(e){ return d; }
 }
 function saveSettings(){
@@ -735,6 +745,7 @@ let gstate = {
   roster: [],
   votes: { mode: {}, pace: {} },
   paceOverride: null,
+  hintMode: 'stay',
   need: {},
   falseCall: null,
   game: { status: 'waiting', mode: 'line', paceKey:'standard', practice: false, sequence: [], revealed: 0, speedMs: 2600 },
@@ -1179,6 +1190,7 @@ async function tryTvCode(attempt, resume){
   window.addEventListener('pagehide', ()=>{
     try{ client.publish(t.state, '', { qos:0, retain:true }); }catch(e){}
   });
+  gstate.hintMode = state.settings.hint || 'stay';
   setupTvLobby(code);
   $('tv-menu-btn').classList.remove('hidden');
   broadcastState();
@@ -1262,6 +1274,7 @@ function renderMenu(){
   document.querySelectorAll('#menu-speed button').forEach(b=> b.classList.toggle('on', b.dataset.speed === cur));
   document.querySelectorAll('#menu-voice button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.voice));
   document.querySelectorAll('#menu-bing button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === state.settings.bing));
+  document.querySelectorAll('#menu-hint button').forEach(b=> b.classList.toggle('on', b.dataset.hint === (gstate.hintMode || 'stay')));
   document.querySelectorAll('#menu-caller button').forEach(b=> b.classList.toggle('on', b.dataset.caller === callerVoiceKey()));
   renderCallerStatus();
 }
@@ -1575,15 +1588,44 @@ function calledSet(){
   return new Set(revealed.map(it=>`${it.col}${it.num}`));
 }
 
+// When this phone first saw each call, so "3 seconds" hints can fade on time.
+function trackSeenCalls(gs){
+  if(!gs.game || !gs.game.sequence) return;
+  const revealed = gs.game.sequence.slice(0, gs.game.revealed || 0);
+  const fresh = state.seenGame !== gs.game.startedAt;
+  if(fresh){ state.seenGame = gs.game.startedAt; state.seenAt = {}; }
+  const now = Date.now();
+  revealed.forEach((it, i)=>{
+    const k = it.col + it.num;
+    if(state.seenAt[k] === undefined){
+      // Joining or rejoining mid-race: only the latest call counts as new.
+      state.seenAt[k] = (fresh && i < revealed.length - 1) ? 0 : now;
+    }
+  });
+}
+
 function refreshCellStates(){
   const called = calledSet();
+  const mode = (gstate && gstate.hintMode) || 'stay';
+  const now = Date.now();
+  let nextFade = 0;
   document.querySelectorAll('#bingo-grid .cell:not(.free)').forEach(cell=>{
     const key = `${cell.dataset.letter}${cell.dataset.num}`;
     const idx = Number(cell.dataset.row)*5 + Number(cell.dataset.col);
     const isMarked = state.marked[idx];
+    let hint = false;
+    if(called.has(key) && !isMarked){
+      if(mode === 'stay') hint = true;
+      else if(mode === '3s'){
+        const left = 3000 - (now - ((state.seenAt && state.seenAt[key]) || 0));
+        if(left > 0){ hint = true; nextFade = Math.max(nextFade, left); }
+      }
+    }
     cell.classList.toggle('marked', !!isMarked);
-    cell.classList.toggle('called-not-marked', called.has(key) && !isMarked);
+    cell.classList.toggle('called-not-marked', hint);
   });
+  clearTimeout(state.hintTimer);
+  if(nextFade) state.hintTimer = setTimeout(refreshCellStates, nextFade + 50);
 }
 
 function onCellClick(e){
@@ -1669,6 +1711,7 @@ function applyState(gs){
     const pc = PACE[gs.game.paceKey] || PACE.standard;
     $('mode-banner').textContent = (gs.game.practice ? 'Practice run · ' : '') + md.label + ': win with ' + md.need + ' · ' + pc.label + ' pace';
     updateCallDisplay();
+    trackSeenCalls(gs);
     refreshCellStates();
     if(state.lastNeedSent === null) sendProgress(true);
   }
@@ -1916,6 +1959,10 @@ document.querySelectorAll('#menu-caller button').forEach(b=> b.addEventListener(
   state.settings.caller = b.dataset.caller; saveSettings(); renderMenu();
   await loadClips();
   say('hello', "Hi! I'll be calling tonight.");
+}));
+document.querySelectorAll('#menu-hint button').forEach(b=> b.addEventListener('click', ()=>{
+  state.settings.hint = b.dataset.hint; saveSettings();
+  gstate.hintMode = b.dataset.hint; broadcastState(); renderMenu();
 }));
 document.querySelectorAll('#menu-bing button').forEach(b=> b.addEventListener('click', ()=>{
   state.settings.bing = b.dataset.v === 'on'; saveSettings(); renderMenu();
