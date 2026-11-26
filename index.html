@@ -313,6 +313,10 @@
   .menu-row .seg{ justify-content:flex-start; }
   .menu-row .seg button{ font-size:clamp(14px,1.2vw,22px); }
   .menu-note{ margin:10px 0 0; color:#6b6152; font-weight:700; font-size:clamp(13px,1.05vw,18px); }
+  .tv-menu-btn{ white-space:nowrap; }
+  body.paused .tv-flavor{ display:block !important; color:var(--yellow); }
+  .tv-menu-btn.warn{ background:var(--red); border-color:var(--red-dark); color:#fffdf8; }
+  .tv-head-right .tv-menu-btn + .tv-menu-btn{ margin-left:-.6vw; }
   .tv-toast{ position:fixed; left:50%; top:3vh; transform:translateX(-50%) !important; z-index:55; background:#3b4252; color:#fffdf8; font-weight:900; font-size:clamp(18px,1.8vw,34px); padding:16px 32px; border-radius:999px; }
   .tv-close-label{ margin:3vh 0 1vh; font-weight:900; color:#5d6677; font-size:clamp(14px,1.3vw,24px); }
   .tv-close{ display:flex; flex-direction:column; gap:8px; }
@@ -542,6 +546,8 @@
     <h1>Greyhound <span>Speed Bingo</span></h1>
     <div class="tv-head-right">
       <div class="tv-banner" id="tv-banner"></div>
+      <button type="button" class="tv-menu-btn hidden" id="tv-pause">Pause</button>
+      <button type="button" class="tv-menu-btn hidden" id="tv-end">End game</button>
       <button type="button" class="tv-menu-btn hidden" id="tv-menu-btn">Menu</button>
     </div>
   </header>
@@ -1425,7 +1431,8 @@ function renderRace(gs){
     const p = won ? 1 : racePos(nm, gs);
     const dog = lane.querySelector('.dog');
     // The dog's nose sits at its spot; leave room for its body at the start.
-    dog.style.left = 'calc(' + (p * 100) + '% + ' + ((1 - p) * 9) + '%)';
+    const w = dog.offsetWidth || 120;
+    dog.style.left = 'calc(' + w + 'px + ' + p.toFixed(4) + ' * (100% - ' + w + 'px))';
     lane.classList.toggle('won', !!won);
     if(moved && state.raceRevealed >= 0) replay(dog, 'hop');
   });
@@ -1490,6 +1497,7 @@ function pickNextSpeed(step){
 
 function renderTV(gs){
   if(!state.netReady) return;
+  renderTvControls(gs);
   const n = gs.roster.length;
   const countText = n === 1 ? '1 player' : n + ' players';
   $('tv-count').textContent = countText;
@@ -1508,6 +1516,7 @@ function renderTV(gs){
   $('tv-start').disabled = n === 0;
   $('tv-start').textContent = n === 0 ? 'Waiting for players' : 'Start the race';
 
+  if(gs.game.status !== 'playing') document.body.classList.remove('paused');
   if(gs.game.status === 'playing'){
     showTV('tv-game');
     const md = MODES[gs.game.mode] || MODES.line;
@@ -1524,6 +1533,8 @@ function renderTV(gs){
     renderRace(gs);
     maybeBing(gs);
     tickCountdown();
+    document.body.classList.toggle('paused', !!gs.game.paused);
+    if(gs.game.paused) $('tv-flavor').textContent = 'Paused';
   } else {
     showTV('tv-lobby');
     $('tv-banner').textContent = '';
@@ -1906,6 +1917,7 @@ function applyState(gs){
     $('screen-game').classList.toggle('card-only', noHints());
     updateCallDisplay();
     tickCountdown();
+    if(gs.game.paused){ $('call-flavor').textContent = 'Paused by the TV. Hang tight!'; $('call-speed').textContent = ''; }
     trackSeenCalls(gs);
     refreshCellStates();
   }
@@ -2089,9 +2101,10 @@ function actuallyStartRace(){
 
 function hostLoop(firstDelay){
   if(state.hostTimer) clearTimeout(state.hostTimer);
+  if(gstate.game && gstate.game.paused) return;
   const step = ()=>{
     if(gstate.winner && gstate.winner.name) return;
-    if(!gstate.game || gstate.game.status !== 'playing') return;
+    if(!gstate.game || gstate.game.status !== 'playing' || gstate.game.paused) return;
     if(gstate.game.revealed >= gstate.game.sequence.length) return;
     gstate.game.revealed += 1;
     gstate.game.speedMs = Math.max(gstate.game.paceFloor || 700, gstate.game.speedMs - (gstate.game.paceDec || 55));
@@ -2107,7 +2120,7 @@ const COUNTDOWN_MS = 3000;
 // clocks that disagree between the TV and phones don't matter.
 function tickCountdown(){
   const g = gstate && gstate.game;
-  const active = g && g.status === 'playing' && (g.revealed || 0) === 0 && g.countdownMs && !(gstate.winner && gstate.winner.name);
+  const active = g && g.status === 'playing' && !g.paused && (g.revealed || 0) === 0 && g.countdownMs && !(gstate.winner && gstate.winner.name);
   if(!active){ clearInterval(state.cdTimer); state.cdTimer = null; document.body.classList.remove('counting'); return; }
   if(state.cdGame !== g.startedAt){
     state.cdGame = g.startedAt;
@@ -2159,6 +2172,51 @@ function setPace(key){
   broadcastState();
 }
 
+/* ---------- TV controls: pause, resume, end the game early ---------- */
+function racing(){ return gstate.game && gstate.game.status === 'playing' && !(gstate.winner && gstate.winner.name); }
+function togglePause(){
+  if(!racing()) return;
+  const g = gstate.game;
+  if(!g.paused){
+    g.paused = true;
+    if(state.hostTimer) clearTimeout(state.hostTimer);
+    broadcastState();
+    hostSays('Time out! Catch your breath.', 'nod');
+  } else {
+    g.paused = false;
+    if((g.revealed || 0) === 0){ g.startedAt = Date.now(); hostLoop(COUNTDOWN_MS); }   // run the 3-2-1 again
+    else hostLoop(g.speedMs);
+    broadcastState();
+    hostSays("And we're back!", 'nod');
+  }
+}
+function endGame(){
+  const btn = $('tv-end');
+  if(!racing()) return;
+  if(!btn.classList.contains('warn')){
+    btn.classList.add('warn'); btn.textContent = 'Tap again to end';
+    clearTimeout(state.endTimer);
+    state.endTimer = setTimeout(()=>{ btn.classList.remove('warn'); btn.textContent = 'End game'; }, 4000);
+    return;
+  }
+  clearTimeout(state.endTimer);
+  btn.classList.remove('warn'); btn.textContent = 'End game';
+  resetForNewRound();
+  broadcastState();
+  const toast = $('tv-toast');
+  toast.textContent = 'Game ended. Back to the lobby!';
+  toast.classList.remove('hidden');
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(()=> toast.classList.add('hidden'), 3000);
+}
+function renderTvControls(gs){
+  const on = gs.game && gs.game.status === 'playing' && !(gs.winner && gs.winner.name);
+  $('tv-pause').classList.toggle('hidden', !on);
+  $('tv-end').classList.toggle('hidden', !on);
+  $('tv-pause').textContent = gs.game && gs.game.paused ? 'Resume' : 'Pause';
+  $('tv-pause').classList.toggle('warn', !!(gs.game && gs.game.paused));
+}
+
 function playAgain(){
   if(state.isHost){
     resetForNewRound();
@@ -2185,6 +2243,8 @@ $('btn-again').addEventListener('click', playAgain);
 $('tv-open').addEventListener('click', openTvRoom);
 $('tv-resume').addEventListener('click', resumeTvRoom);
 $('tv-menu-btn').addEventListener('click', openMenu);
+$('tv-pause').addEventListener('click', togglePause);
+$('tv-end').addEventListener('click', endGame);
 $('tv-menu-close').addEventListener('click', closeMenu);
 $('tv-menu').addEventListener('click', (e)=>{ if(e.target === $('tv-menu')) closeMenu(); });
 document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape' && !$('tv-menu').classList.contains('hidden')) closeMenu(); });
