@@ -1544,12 +1544,12 @@ function renderTV(gs){
   if(gs.falseCall && gs.falseCall.at !== state.lastFalseAt){
     state.lastFalseAt = gs.falseCall.at;
     const toast = $('tv-toast');
-    toast.textContent = 'Looks like we have a practice bingo! Keep going, ' + gs.falseCall.name + '.';
+    toast.textContent = 'Practice Bingo! (' + gs.falseCall.name + ')';
     toast.classList.remove('hidden');
     clearTimeout(state.toastTimer);
     state.toastTimer = setTimeout(()=> toast.classList.add('hidden'), 4000);
-    say('early', 'Looks like we have a practice bingo!');
-    hostSays('Looks like we have a practice bingo, ' + gs.falseCall.name + '! Keep running.', 'shake');
+    say('early', 'Practice Bingo!');
+    hostSays('Practice Bingo!', 'shake');
   }
 
   if(gs.winner && gs.winner.name){
@@ -1926,9 +1926,9 @@ function applyState(gs){
 
   if(gs.falseCall && gs.falseCall.at !== state.lastFalseAt){
     state.lastFalseAt = gs.falseCall.at;
-    if(gs.falseCall.name === state.name) flashStatus("Looks like we have a practice bingo! Keep going.");
-    else flashStatus("Looks like " + gs.falseCall.name + " has a practice bingo. Keep going!");
-    say('early', 'Looks like we have a practice bingo!');
+    if(gs.falseCall.name === state.name) flashStatus("Practice Bingo!");
+    else flashStatus("Practice Bingo! (" + gs.falseCall.name + ")");
+    say('early', 'Practice Bingo!');
   }
 
   const winner = gs.winner;
@@ -2066,7 +2066,7 @@ function tryClaim(){
   }
   if(state.isHost){
     // Practising alone: this phone is the judge.
-    if(!validateClaim(state.card, state.marked, currentMode())){ flashStatus("Looks like we have a practice bingo! Keep going."); say('early', 'Looks like we have a practice bingo!'); return; }
+    if(!validateClaim(state.card, state.marked, currentMode())){ flashStatus("Practice Bingo!"); say('early', 'Practice Bingo!'); return; }
     gstate.winner = winnerRecord(state.name, state.card, state.marked, currentMode());
     if(state.hostTimer) clearTimeout(state.hostTimer);
     broadcastState();
