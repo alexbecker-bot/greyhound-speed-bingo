@@ -343,6 +343,23 @@
   }
   .tv-resume{ margin-top:14px; }
   .tv-center .btn.secondary{ background:var(--purple); }
+  #screen-game.card-only .callout, #screen-game.card-only .history{ display:none; }
+  .win-card{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; max-width:250px; margin:10px auto 6px; }
+  .win-card .h{ font-family:'Luckiest Guy',cursive; color:var(--red); text-align:center; font-size:1rem; }
+  .win-card .c{ aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:8px; border:2px solid #e3ddd0; background:#fffdf8; color:#a19c90; font-weight:900; font-size:.85rem; }
+  .win-card .c.free{ font-size:.6rem; letter-spacing:.02em; }
+  .win-card .c.m{ background:#f3e7c4; border-color:#e1cf98; color:var(--ink); }
+  .win-card .c.w{ background:var(--red); border-color:var(--red-dark); color:#fffdf8; }
+  .winner-overlay{ overflow-y:auto; }
+  .winner-card{ margin:auto; }
+  .winner-card .boomer{ width:120px; height:150px; }
+  body.tv-mode .winner-card{ display:grid; grid-template-columns:auto auto; column-gap:36px; align-items:center; max-width:900px; }
+  body.tv-mode .winner-card > *{ grid-column:2; }
+  body.tv-mode .winner-card .boomer{ grid-column:1; grid-row:1 / span 6; width:220px; height:275px; }
+  body.tv-mode .win-card{ max-width:340px; gap:6px; }
+  body.tv-mode .win-card .h{ font-size:1.6rem; }
+  body.tv-mode .win-card .c{ font-size:1.25rem; border-radius:10px; }
+  body.tv-mode .win-card .c.free{ font-size:.85rem; }
   .tv{ display:none; }
   body.tv-mode{ display:block !important; padding:3vh 3vw !important; min-height:100vh; }
   body.tv-mode .app{ display:none !important; }
@@ -538,8 +555,6 @@
       </div>
       <div class="tv-recent-label">Previous calls</div>
       <div class="tv-recent" id="tv-recent"></div>
-      <div class="tv-close-label">Who's close</div>
-      <div class="tv-close" id="tv-close"></div>
       <div class="tv-meta"><span>Room <b id="tv-code2"></b></span><span id="tv-count2"></span></div>
     </div>
     <div class="tv-panel tv-board" id="tv-board"></div>
@@ -584,7 +599,7 @@
         <button type="button" data-hint="3s">3 seconds</button>
         <button type="button" data-hint="stay">Until tapped</button>
       </div>
-      <p class="menu-note">Highlights a called number on each player's card so it's easy to spot. "3 seconds" shows it briefly; "Until tapped" keeps it lit until the player marks it.</p>
+      <p class="menu-note">"Off" shows players only their card: no calls and no highlights, so they watch and listen to the TV. "3 seconds" and "Until tapped" also show the call on phones and light up called numbers.</p>
     </div>
     <button class="btn" id="tv-menu-close">Done</button>
   </div>
@@ -632,6 +647,7 @@
     </svg>
     <h2 id="winner-name">—</h2>
     <p>crosses the finish line first!</p>
+    <div class="win-card hidden" id="win-card" aria-label="Winning card"></div>
     <div class="next-speed hidden" id="next-speed">
       <div class="ns-label">Speed for the next round</div>
       <div class="seg" id="ns-seg">
@@ -1082,7 +1098,7 @@ function handleGuestMessage(msg){
   } else if(msg.type === 'claim'){
     if(gstate.game.status === 'playing' && !gstate.winner.name){
       if(validateClaim(msg.card, msg.marked, gstate.game.mode)){
-        gstate.winner = { name, wonAt: now };
+        gstate.winner = winnerRecord(name, msg.card, msg.marked, gstate.game.mode);
         if(state.hostTimer) clearTimeout(state.hostTimer);
       } else {
         gstate.falseCall = { name, at: now };
@@ -1256,17 +1272,19 @@ function voteRows(map, keys, labels){
   return keys.map(k=>`<div class="tv-vote-row"><span>${labels[k]}</span><b>${t[k]}</b></div>`).join('');
 }
 
-function renderWhosClose(gs){
-  const rows = gs.roster.map(n=> ({ n, need: (gs.need && typeof gs.need[n] === 'number') ? gs.need[n] : null }));
-  rows.sort((a,b)=> (a.need === null ? 99 : a.need) - (b.need === null ? 99 : b.need));
-  $('tv-close').innerHTML = rows.slice(0,6).map(r=>{
-    let label = 'getting started';
-    if(r.need === 0) label = 'has bingo!';
-    else if(r.need === 1) label = 'needs 1!';
-    else if(r.need !== null) label = 'needs ' + r.need;
-    const hot = r.need !== null && r.need <= 1;
-    return '<div class="tv-close-row' + (hot ? ' hot' : '') + '"><span>' + escapeHtml(r.n) + '</span><span class="need">' + label + '</span></div>';
-  }).join('');
+function renderWinnerCard(w){
+  const box = $('win-card');
+  if(!w || !Array.isArray(w.card)){ box.classList.add('hidden'); box.innerHTML = ''; return; }
+  const win = new Set(w.cells || []);
+  let html = LETTERS.map(L=> '<div class="h">' + L + '</div>').join('');
+  for(let r=0;r<5;r++) for(let c=0;c<5;c++){
+    const i = r*5+c;
+    const label = i === 12 ? 'FREE' : w.card[c][r];
+    const cls = win.has(i) ? 'c w' : (w.marked && w.marked[i] ? 'c m' : 'c');
+    html += '<div class="' + cls + (i === 12 ? ' free' : '') + '">' + label + '</div>';
+  }
+  box.innerHTML = html;
+  box.classList.remove('hidden');
 }
 
 function renderMenu(){
@@ -1336,7 +1354,6 @@ function renderTV(gs){
     document.querySelectorAll('#tv-board .n').forEach(el=> el.classList.remove('on','latest'));
     revealed.forEach(it=>{ const el = $('b-'+it.col+it.num); if(el) el.classList.add('on'); });
     if(last){ const el = $('b-'+last.col+last.num); if(el) el.classList.add('latest'); }
-    renderWhosClose(gs);
     maybeBing(gs);
   } else {
     showTV('tv-lobby');
@@ -1356,6 +1373,7 @@ function renderTV(gs){
   if(gs.winner && gs.winner.name){
     const fresh = $('winner-overlay').classList.contains('hidden');
     $('winner-name').textContent = gs.winner.name;
+    renderWinnerCard(gs.winner);
     document.querySelector('.winner-card p').textContent = 'crosses the finish line first!';
     $('btn-again').textContent = 'New round';
     $('next-speed').classList.remove('hidden');
@@ -1524,7 +1542,7 @@ function renderRoster(names){
     $('lobby-hint').textContent = "Practising on your own. Pick a race and pace, then start.";
   } else {
     $('btn-start').textContent = "Everyone's in, start 🏁";
-    $('lobby-hint').textContent = "Vote for the race and pace. Calls show on the TV and on your card here.";
+    $('lobby-hint').textContent = "Vote for the race and pace. Watch and listen to the TV for the calls.";
   }
 }
 
@@ -1628,17 +1646,20 @@ function refreshCellStates(){
   if(nextFade) state.hintTimer = setTimeout(refreshCellStates, nextFade + 50);
 }
 
+// With hints off (in a TV room) the phone gives nothing away: no call display,
+// and any square can be marked, like daubing a paper card. The TV checks claims.
+function noHints(){ return !state.local && gstate && gstate.hintMode === 'off'; }
+
 function onCellClick(e){
   const cell = e.currentTarget;
   const key = `${cell.dataset.letter}${cell.dataset.num}`;
-  if(!calledSet().has(key)){
+  if(!noHints() && !calledSet().has(key)){
     flashStatus("That one hasn't been called yet!");
     return;
   }
   const idx = Number(cell.dataset.row)*5 + Number(cell.dataset.col);
   state.marked[idx] = !state.marked[idx];
   refreshCellStates();
-  sendProgress();
   saveSession();
 }
 
@@ -1710,10 +1731,10 @@ function applyState(gs){
     const md = MODES[currentMode()] || MODES.line;
     const pc = PACE[gs.game.paceKey] || PACE.standard;
     $('mode-banner').textContent = (gs.game.practice ? 'Practice run · ' : '') + md.label + ': win with ' + md.need + ' · ' + pc.label + ' pace';
+    $('screen-game').classList.toggle('card-only', noHints());
     updateCallDisplay();
     trackSeenCalls(gs);
     refreshCellStates();
-    if(state.lastNeedSent === null) sendProgress(true);
   }
 
   if(gs.falseCall && gs.falseCall.at !== state.lastFalseAt){
@@ -1725,8 +1746,9 @@ function applyState(gs){
   if(winner && winner.name && !state.wonAlready){
     state.wonAlready = true;
     const practice = gs.game && gs.game.practice;
-    $('winner-name').textContent = practice ? 'Nice practice run!' : (winner.name === state.name ? `You (${winner.name})` : winner.name);
-    document.querySelector('.winner-card p').textContent = practice ? 'Card cleared. Go again whenever you like.' : 'crosses the finish line first!';
+    $('winner-name').textContent = practice ? 'Nice practice run!' : (winner.name === state.name ? 'You win!' : winner.name);
+    renderWinnerCard(winner);
+    document.querySelector('.winner-card p').textContent = practice ? 'Card cleared. Go again whenever you like.' : (winner.name === state.name ? 'Bingo! You crossed the finish line first.' : 'crosses the finish line first!');
     $('btn-again').textContent = state.local ? 'Race again' : 'Back to the lobby';
     $('next-speed').classList.toggle('hidden', !state.local);
     renderNextSpeed();
@@ -1795,6 +1817,32 @@ function computeNeed(marks, mode){
 }
 
 // Host side: trust only marks on numbers that have actually been called.
+// The winning squares: every square for a Marathon, otherwise every finished line.
+function winningCells(card, marked, mode){
+  const ok = calledMarks(card, marked);
+  if(mode === 'marathon') return ok.map((v,i)=> i);
+  const cells = new Set();
+  LINES.forEach(l=>{ if(l.every(i=> ok[i])) l.forEach(i=> cells.add(i)); });
+  return [...cells];
+}
+
+// Marks that count: only squares whose number has actually been called.
+function calledMarks(card, marked){
+  const called = calledSet();
+  const ok = new Array(25).fill(false);
+  for(let r=0;r<5;r++) for(let c=0;c<5;c++){
+    const i = r*5+c;
+    if(i === 12){ ok[i] = true; continue; }
+    const v = card[c] && card[c][r];
+    ok[i] = !!marked[i] && called.has(LETTERS[c] + v);
+  }
+  return ok;
+}
+
+function winnerRecord(name, card, marked, mode){
+  return { name, wonAt: Date.now(), card, marked: calledMarks(card, marked), cells: winningCells(card, marked, mode) };
+}
+
 function validateClaim(card, marked, mode){
   if(!Array.isArray(card) || !Array.isArray(marked)) return false;
   const called = calledSet();
@@ -1822,35 +1870,19 @@ function sendProgress(force){
 }
 
 function tryClaim(){
-  const mode = currentMode();
-  const need = computeNeed(state.marked, mode);
-  if(need > 0){
-    if(mode === 'marathon'){
-      if(countLines() >= 1 && !state.calledLapLead){
-        state.calledLapLead = true;
-        flashStatus("Lap lead! Now fill the whole card to win.");
-      } else {
-        flashStatus("Marathon needs the full card. " + need + " to go!");
-      }
-    } else if(mode === 'double'){
-      flashStatus(countLines() === 1 ? "One line down, one to go!" : "Double dash needs two lines.");
-    } else {
-      flashStatus("No finished line yet. You need " + need + " more.");
-    }
-    return;
-  }
   if(gstate.winner && gstate.winner.name){
     flashStatus(gstate.winner.name === state.name ? 'You already won this round!' : `Too slow! ${gstate.winner.name} already won.`);
     return;
   }
   if(state.isHost){
-    if(!validateClaim(state.card, state.marked, mode)){ flashStatus("Not a bingo yet. Keep going!"); return; }
-    gstate.winner = { name: state.name, wonAt: Date.now() };
+    // Practising alone: this phone is the judge.
+    if(!validateClaim(state.card, state.marked, currentMode())){ flashStatus("Not a bingo yet. Keep going!"); return; }
+    gstate.winner = winnerRecord(state.name, state.card, state.marked, currentMode());
     if(state.hostTimer) clearTimeout(state.hostTimer);
     broadcastState();
   } else {
     sendToHost({ type:'claim', card: state.card, marked: state.marked });
-    flashStatus("Bingo sent! The TV is checking your card…");
+    flashStatus("Bingo! The TV is checking your card…");
   }
 }
 
