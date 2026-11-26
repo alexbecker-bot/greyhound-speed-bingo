@@ -343,7 +343,7 @@
   }
   .tv-resume{ margin-top:14px; }
   .tv-center .btn.secondary{ background:var(--purple); }
-  #screen-game.card-only .callout, #screen-game.card-only .history{ display:none; }
+  #screen-game .history{ display:none !important; }
   .win-card{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:4px; max-width:250px; margin:10px auto 6px; }
   .win-card .h{ font-family:'Luckiest Guy',cursive; color:var(--red); text-align:center; font-size:1rem; }
   .win-card .c{ aspect-ratio:1; display:flex; align-items:center; justify-content:center; border-radius:8px; border:2px solid #e3ddd0; background:#fffdf8; color:#a19c90; font-weight:900; font-size:.85rem; }
@@ -503,6 +503,11 @@
       </div>
       <p class="vote-help" id="help-pace"></p>
     </div>
+    <div class="vote-block phone-sound" id="phone-sound-block">
+      <div class="vote-title">Hear the calls on this phone</div>
+      <div class="seg" id="phone-sound"><button type="button" data-v="off">Off</button><button type="button" data-v="on">On</button></div>
+      <p class="vote-help">Turn on if you're playing away from the TV, like a friend in another city. Each number gets a bing and is read aloud here.</p>
+    </div>
     <button class="btn" id="btn-start">Start the Race 🏁</button>
     <p class="hint" id="lobby-hint">Everyone gets one vote for mode and one for pace. Most votes wins each — ties go to Sprint line / Standard.</p>
   </div>
@@ -631,7 +636,7 @@
         <button type="button" data-hint="3s">3 seconds</button>
         <button type="button" data-hint="stay">Until tapped</button>
       </div>
-      <p class="menu-note">"Off" shows players only their card: no calls and no highlights, so they watch and listen to the TV. "3 seconds" and "Until tapped" also show the call on phones and light up called numbers.</p>
+      <p class="menu-note">Phones always show the number just called, never a list of earlier calls. "Off" never lights up called numbers on the card, so players have to keep track themselves. "3 seconds" and "Until tapped" light up a called number that's on the card.</p>
     </div>
     <div class="menu-row">
       <h3>Race track and Boomer the host</h3>
@@ -788,7 +793,7 @@ let state = {
 };
 
 function loadSettings(){
-  const d = { voice:true, bing:true, caller:'heart', hint:'stay', anim:'still' };
+  const d = { voice:true, bing:true, caller:'heart', hint:'stay', anim:'still', phoneSound:false };
   try{ const v = JSON.parse(localStorage.getItem('ghb-settings') || '{}'); return Object.assign(d, v); }catch(e){ return d; }
 }
 function saveSettings(){
@@ -979,7 +984,11 @@ const CLIP_KEYS = (()=>{
 })();
 const caller = { voice:null, clips:new Map(), status:'off', loaded:0, audio:null };
 
-function callerVoiceKey(){ return CALLER_VOICES[state.settings.caller] ? state.settings.caller : 'heart'; }
+function callerVoiceKey(){
+  // A phone in a TV room uses whichever voice the TV picked.
+  const k = (state.role !== 'tv' && !state.local && gstate && gstate.caller) || state.settings.caller;
+  return CALLER_VOICES[k] ? k : 'heart';
+}
 
 function renderCallerStatus(){
   let msg = '';
@@ -1021,6 +1030,21 @@ async function loadClips(){
   renderCallerStatus();
 }
 
+// Phones only allow sound after a tap, so a tap on the toggle (or anywhere later) unlocks it.
+function unlockPhoneAudio(){
+  initAudio(); unlockSpeech();
+  try{ if(state.audioCtx && state.audioCtx.state === 'suspended') state.audioCtx.resume(); }catch(e){}
+  try{
+    if(!caller.audio) caller.audio = new Audio();
+    const first = caller.clips.values().next().value;
+    if(first && caller.audio.paused){ caller.audio.muted = true; caller.audio.src = first; const p = caller.audio.play(); if(p && p.then) p.then(()=>{ caller.audio.pause(); caller.audio.muted = false; }).catch(()=>{ caller.audio.muted = false; }); else caller.audio.muted = false; }
+  }catch(e){}
+}
+function renderPhoneSound(){
+  document.querySelectorAll('#phone-sound button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === !!state.settings.phoneSound));
+  $('phone-sound-block').classList.toggle('hidden', state.local || state.role === 'tv');
+}
+
 function playClip(url, fallbackText){
   try{
     if(!caller.audio) caller.audio = new Audio();
@@ -1032,7 +1056,7 @@ function playClip(url, fallbackText){
 }
 
 // Who makes sound: the TV for the room, or a phone practising alone.
-function makesSound(){ return state.role === 'tv' || state.local; }
+function makesSound(){ return state.role === 'tv' || state.local || !!state.settings.phoneSound; }
 
 // Play a recorded line, or use the device's voice if it isn't available.
 function say(key, fallbackText){
@@ -1248,6 +1272,7 @@ async function tryTvCode(attempt, resume){
     try{ client.publish(t.state, '', { qos:0, retain:true }); }catch(e){}
   });
   gstate.hintMode = state.settings.hint || 'stay';
+  gstate.caller = state.settings.caller || 'heart';
   setupTvLobby(code);
   $('tv-menu-btn').classList.remove('hidden');
   broadcastState();
@@ -1498,6 +1523,7 @@ function renderTV(gs){
     if(last){ const el = $('b-'+last.col+last.num); if(el) el.classList.add('latest'); }
     renderRace(gs);
     maybeBing(gs);
+    tickCountdown();
   } else {
     showTV('tv-lobby');
     $('tv-banner').textContent = '';
@@ -1506,12 +1532,12 @@ function renderTV(gs){
   if(gs.falseCall && gs.falseCall.at !== state.lastFalseAt){
     state.lastFalseAt = gs.falseCall.at;
     const toast = $('tv-toast');
-    toast.textContent = gs.falseCall.name + ' called bingo too early! Keep going.';
+    toast.textContent = 'Looks like we have a practice bingo! Keep going, ' + gs.falseCall.name + '.';
     toast.classList.remove('hidden');
     clearTimeout(state.toastTimer);
     state.toastTimer = setTimeout(()=> toast.classList.add('hidden'), 4000);
-    say('early', gs.falseCall.name + ' called bingo too early!');
-    hostSays('Ruff! Not yet, ' + gs.falseCall.name + '. Keep running!', 'shake');
+    say('early', 'Looks like we have a practice bingo!');
+    hostSays('Looks like we have a practice bingo, ' + gs.falseCall.name + '! Keep running.', 'shake');
   }
 
   if(gs.winner && gs.winner.name){
@@ -1861,6 +1887,8 @@ function applyState(gs){
     $('game-you').textContent = 'You: ' + state.name;
   }
   if(Array.isArray(gs.roster)) renderRoster(gs.roster);
+  renderPhoneSound();
+  if(state.settings.phoneSound && !state.local && callerVoiceKey() !== 'device' && caller.voice !== callerVoiceKey()) loadClips();
 
   const playing = gs.game && gs.game.status === 'playing';
   if(!playing && !$('screen-game').classList.contains('hidden')) show('screen-lobby');
@@ -1877,13 +1905,16 @@ function applyState(gs){
     $('mode-banner').textContent = (gs.game.practice ? 'Practice run · ' : '') + md.label + ': win with ' + md.need + ' · ' + pc.label + ' pace';
     $('screen-game').classList.toggle('card-only', noHints());
     updateCallDisplay();
+    tickCountdown();
     trackSeenCalls(gs);
     refreshCellStates();
   }
 
   if(gs.falseCall && gs.falseCall.at !== state.lastFalseAt){
     state.lastFalseAt = gs.falseCall.at;
-    if(gs.falseCall.name === state.name) flashStatus("The TV checked your card: not a bingo yet. Keep going!");
+    if(gs.falseCall.name === state.name) flashStatus("Looks like we have a practice bingo! Keep going.");
+    else flashStatus("Looks like " + gs.falseCall.name + " has a practice bingo. Keep going!");
+    say('early', 'Looks like we have a practice bingo!');
   }
 
   const winner = gs.winner;
@@ -1897,6 +1928,7 @@ function applyState(gs){
     $('next-speed').classList.toggle('hidden', !state.local);
     renderNextSpeed();
     $('winner-overlay').classList.remove('hidden');
+    if(!state.local) setTimeout(()=> say('winner', 'Bingo! ' + winner.name + ' wins!'), 400);
   }
   if((!winner || !winner.name) && state.wonAlready){
     state.wonAlready = false;
@@ -2020,7 +2052,7 @@ function tryClaim(){
   }
   if(state.isHost){
     // Practising alone: this phone is the judge.
-    if(!validateClaim(state.card, state.marked, currentMode())){ flashStatus("Not a bingo yet. Keep going!"); return; }
+    if(!validateClaim(state.card, state.marked, currentMode())){ flashStatus("Looks like we have a practice bingo! Keep going."); say('early', 'Looks like we have a practice bingo!'); return; }
     gstate.winner = winnerRecord(state.name, state.card, state.marked, currentMode());
     if(state.hostTimer) clearTimeout(state.hostTimer);
     broadcastState();
@@ -2044,18 +2076,18 @@ function actuallyStartRace(){
   gstate.game = {
     status:'playing', mode, paceKey,
     practice: state.local,
-    sequence: shuffledSequence(), revealed:1,
+    sequence: shuffledSequence(), revealed:0,
     speedMs: pace.start, paceFloor: pace.floor, paceDec: pace.dec,
-    startedAt: Date.now()
+    startedAt: Date.now(), countdownMs: COUNTDOWN_MS
   };
   gstate.winner = {};
   gstate.need = {};
   gstate.falseCall = null;
   broadcastState();
-  hostLoop();
+  hostLoop(COUNTDOWN_MS);
 }
 
-function hostLoop(){
+function hostLoop(firstDelay){
   if(state.hostTimer) clearTimeout(state.hostTimer);
   const step = ()=>{
     if(gstate.winner && gstate.winner.name) return;
@@ -2066,7 +2098,41 @@ function hostLoop(){
     broadcastState();
     state.hostTimer = setTimeout(step, gstate.game.speedMs);
   };
-  state.hostTimer = setTimeout(step, gstate.game.speedMs);
+  state.hostTimer = setTimeout(step, firstDelay != null ? firstDelay : (gstate.game.revealed ? gstate.game.speedMs : Math.max(0, (gstate.game.startedAt || 0) + (gstate.game.countdownMs || 0) - Date.now())));
+}
+
+/* ---------- 3-2-1 countdown before the first call ---------- */
+const COUNTDOWN_MS = 3000;
+// Each device times the countdown from when it first sees the new race, so
+// clocks that disagree between the TV and phones don't matter.
+function tickCountdown(){
+  const g = gstate && gstate.game;
+  const active = g && g.status === 'playing' && (g.revealed || 0) === 0 && g.countdownMs && !(gstate.winner && gstate.winner.name);
+  if(!active){ clearInterval(state.cdTimer); state.cdTimer = null; document.body.classList.remove('counting'); return; }
+  if(state.cdGame !== g.startedAt){
+    state.cdGame = g.startedAt;
+    state.cdEnd = (state.isHost || state.role === 'tv') ? g.startedAt + g.countdownMs : Date.now() + g.countdownMs;
+  }
+  const left = Math.max(1, Math.ceil((state.cdEnd - Date.now()) / 1000));
+  document.body.classList.add('counting');
+  const big = String(left);
+  if(state.role === 'tv'){ $('tv-call').textContent = big; $('tv-flavor').textContent = 'Get ready! First call in…'; $('tv-bubble') && ($('tv-bubble').textContent = 'Get ready, everybody!'); }
+  else { $('call-current').textContent = big; $('call-flavor').textContent = 'Get ready! First call in…'; $('call-speed').textContent = ''; }
+  if(state.cdLast !== state.cdGame + ':' + left){
+    state.cdLast = state.cdGame + ':' + left;
+    if(makesSound() && state.settings.bing) playTick();
+  }
+  if(!state.cdTimer) state.cdTimer = setInterval(tickCountdown, 200);
+}
+function playTick(){
+  const ctx = state.audioCtx; if(!ctx) return;
+  try{
+    if(ctx.state === 'suspended') ctx.resume();
+    const t0 = ctx.currentTime, osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = 'sine'; osc.frequency.setValueAtTime(660, t0);
+    gain.gain.setValueAtTime(0.0001, t0); gain.gain.exponentialRampToValueAtTime(0.18, t0 + 0.01); gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.15);
+    osc.connect(gain); gain.connect(ctx.destination); osc.start(t0); osc.stop(t0 + 0.17);
+  }catch(e){}
 }
 
 function resetForNewRound(){
@@ -2132,7 +2198,7 @@ document.querySelectorAll('#menu-voice button').forEach(b=> b.addEventListener('
   else { if('speechSynthesis' in window) window.speechSynthesis.cancel(); if(caller.audio) caller.audio.pause(); }
 }));
 document.querySelectorAll('#menu-caller button').forEach(b=> b.addEventListener('click', async ()=>{
-  state.settings.caller = b.dataset.caller; saveSettings(); renderMenu();
+  state.settings.caller = b.dataset.caller; saveSettings(); gstate.caller = b.dataset.caller; broadcastState(); renderMenu();
   await loadClips();
   say('hello', "Hi! I'll be calling tonight.");
 }));
@@ -2145,6 +2211,16 @@ document.querySelectorAll('#menu-anim button').forEach(b=> b.addEventListener('c
   applyRaceSetting();
   if(gstate && gstate.game && gstate.game.status === 'playing'){ $('tv-lanes').dataset.key = ''; renderRace(gstate); }
 }));
+document.querySelectorAll('#phone-sound button').forEach(b=> b.addEventListener('click', async ()=>{
+  state.settings.phoneSound = b.dataset.v === 'on'; saveSettings(); renderPhoneSound();
+  if(state.settings.phoneSound){
+    unlockPhoneAudio();
+    playBing();
+    await loadClips();
+    say('hello', 'Calls will be read aloud on this phone.');
+  } else { if('speechSynthesis' in window) window.speechSynthesis.cancel(); if(caller.audio) caller.audio.pause(); }
+}));
+document.addEventListener('pointerdown', ()=>{ if(state.settings.phoneSound && state.role !== 'tv') unlockPhoneAudio(); }, { once:true, capture:true });
 document.querySelectorAll('#menu-bing button').forEach(b=> b.addEventListener('click', ()=>{
   state.settings.bing = b.dataset.v === 'on'; saveSettings(); renderMenu();
   if(state.settings.bing) playBing();
