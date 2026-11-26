@@ -984,7 +984,7 @@ const CALLER_VOICES = {
   device:  { label:"This device's voice" }
 };
 const CLIP_KEYS = (()=>{
-  const k = ['open','start','winner','early','back','hello'];
+  const k = ['open','start','winner','early','back','hello','paused','resumed'];
   for(let c=0;c<5;c++) for(let n=RANGES[c][0]; n<=RANGES[c][1]; n++) k.push(LETTERS[c] + n);
   return k;
 })();
@@ -1534,6 +1534,7 @@ function renderTV(gs){
     maybeBing(gs);
     tickCountdown();
     document.body.classList.toggle('paused', !!gs.game.paused);
+    announcePause(gs);
     if(gs.game.paused) $('tv-flavor').textContent = 'Paused';
   } else {
     showTV('tv-lobby');
@@ -1918,6 +1919,7 @@ function applyState(gs){
     updateCallDisplay();
     tickCountdown();
     if(gs.game.paused){ $('call-flavor').textContent = 'Paused by the TV. Hang tight!'; $('call-speed').textContent = ''; }
+    announcePause(gs);
     trackSeenCalls(gs);
     refreshCellStates();
   }
@@ -2092,6 +2094,7 @@ function actuallyStartRace(){
     speedMs: pace.start, paceFloor: pace.floor, paceDec: pace.dec,
     startedAt: Date.now(), countdownMs: COUNTDOWN_MS
   };
+  gstate.game.cdId = gstate.game.startedAt; gstate.game.cdFrom = 0;
   gstate.winner = {};
   gstate.need = {};
   gstate.falseCall = null;
@@ -2111,7 +2114,9 @@ function hostLoop(firstDelay){
     broadcastState();
     state.hostTimer = setTimeout(step, gstate.game.speedMs);
   };
-  state.hostTimer = setTimeout(step, firstDelay != null ? firstDelay : (gstate.game.revealed ? gstate.game.speedMs : Math.max(0, (gstate.game.startedAt || 0) + (gstate.game.countdownMs || 0) - Date.now())));
+  const g = gstate.game;
+  const cdLeft = (g.revealed || 0) === (g.cdFrom || 0) ? (g.cdId || g.startedAt || 0) + (g.countdownMs || 0) - Date.now() : 0;
+  state.hostTimer = setTimeout(step, firstDelay != null ? firstDelay : (cdLeft > 0 ? cdLeft : (g.revealed ? g.speedMs : 0)));
 }
 
 /* ---------- 3-2-1 countdown before the first call ---------- */
@@ -2120,12 +2125,15 @@ const COUNTDOWN_MS = 3000;
 // clocks that disagree between the TV and phones don't matter.
 function tickCountdown(){
   const g = gstate && gstate.game;
-  const active = g && g.status === 'playing' && !g.paused && (g.revealed || 0) === 0 && g.countdownMs && !(gstate.winner && gstate.winner.name);
+  const cdId = g && (g.cdId || g.startedAt);
+  const cdFrom = g && (g.cdFrom || 0);
+  const active = g && g.status === 'playing' && !g.paused && (g.revealed || 0) === cdFrom && g.countdownMs && !(gstate.winner && gstate.winner.name);
   if(!active){ clearInterval(state.cdTimer); state.cdTimer = null; document.body.classList.remove('counting'); return; }
-  if(state.cdGame !== g.startedAt){
-    state.cdGame = g.startedAt;
-    state.cdEnd = (state.isHost || state.role === 'tv') ? g.startedAt + g.countdownMs : Date.now() + g.countdownMs;
+  if(state.cdGame !== cdId){
+    state.cdGame = cdId;
+    state.cdEnd = (state.isHost || state.role === 'tv') ? cdId + g.countdownMs : Date.now() + g.countdownMs;
   }
+  if(Date.now() > state.cdEnd + 400) return;   // countdown over; the next call is on its way
   const left = Math.max(1, Math.ceil((state.cdEnd - Date.now()) / 1000));
   document.body.classList.add('counting');
   const big = String(left);
@@ -2184,10 +2192,11 @@ function togglePause(){
     hostSays('Time out! Catch your breath.', 'nod');
   } else {
     g.paused = false;
-    if((g.revealed || 0) === 0){ g.startedAt = Date.now(); hostLoop(COUNTDOWN_MS); }   // run the 3-2-1 again
-    else hostLoop(g.speedMs);
+    // Run the 3-2-1 again before the next call.
+    g.countdownMs = COUNTDOWN_MS; g.cdId = Date.now(); g.cdFrom = g.revealed || 0;
+    hostLoop(COUNTDOWN_MS);
     broadcastState();
-    hostSays("And we're back!", 'nod');
+    hostSays("And we're back! Get ready.", 'nod');
   }
 }
 function endGame(){
@@ -2208,6 +2217,16 @@ function endGame(){
   toast.classList.remove('hidden');
   clearTimeout(state.toastTimer);
   state.toastTimer = setTimeout(()=> toast.classList.add('hidden'), 3000);
+}
+// Tell everyone listening when the race pauses or picks back up.
+function announcePause(gs){
+  const playing = gs.game && gs.game.status === 'playing';
+  const p = playing ? !!gs.game.paused : null;
+  if(state.lastPaused != null && p != null && p !== state.lastPaused){
+    if(p) say('paused', 'The race is paused. Take a breath!');
+    else say('resumed', "And we're back! Get ready.");
+  }
+  state.lastPaused = p;
 }
 function renderTvControls(gs){
   const on = gs.game && gs.game.status === 'playing' && !(gs.winner && gs.winner.name);
