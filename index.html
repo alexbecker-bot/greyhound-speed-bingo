@@ -282,6 +282,14 @@
 </style>
 <script src="vendor/qrcode.min.js"></script>
 <style>
+  .room-browse{ margin-top:18px; }
+  .room-browse-title{ font-weight:900; color:#5d6677; font-size:.85rem; text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px; }
+  .room-list{ display:flex; flex-direction:column; gap:8px; }
+  .room-item{ font:inherit; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; border-radius:14px; border:2px solid #d9d3c5; background:#fffdf8; color:var(--ink); cursor:pointer; text-align:left; }
+  .room-item b{ font-family:'Luckiest Guy',cursive; font-weight:400; font-size:1.35rem; letter-spacing:.14em; color:var(--red); }
+  .room-item span{ font-weight:700; font-size:.85rem; color:#5d6677; }
+  .room-item.on{ background:var(--yellow); border-color:var(--yellow-dark); }
+  .room-empty{ color:#8a93a3; font-weight:700; font-size:.88rem; text-align:center; padding:6px 0; }
   .join-alt{ margin-top:22px; padding-top:18px; border-top:2px dashed #e3ddd0; text-align:center; }
   .join-alt .btn{ margin-top:0; }
   .tv-link{ display:inline-block; margin-top:14px; color:#5d6677; font-weight:900; }
@@ -475,7 +483,11 @@
     <label for="in-name">Your name</label>
     <input id="in-name" type="text" placeholder="Zoomies" maxlength="14" autocomplete="nickname">
     <button class="btn" id="btn-join">Join the Kennel 🐕</button>
-    <p class="hint">Enter the 4-letter code shown on the TV.</p>
+    <p class="hint">Enter the 4-letter code shown on the TV, or tap an open room below.</p>
+    <div class="room-browse">
+      <div class="room-browse-title">Open rooms</div>
+      <div class="room-list" id="room-list"><div class="room-empty">Looking for open rooms…</div></div>
+    </div>
     <div class="join-alt">
       <button class="btn secondary" id="btn-practice">Practice on my own</button>
       <a class="tv-link" href="tv.html">Hosting? Open the TV screen</a>
@@ -649,6 +661,11 @@
       <p class="menu-note">Phones always show the number just called, never a list of earlier calls. "Off" never lights up called numbers on the card, so players have to keep track themselves. "3 seconds" and "Until tapped" light up a called number that's on the card.</p>
     </div>
     <div class="menu-row">
+      <h3>List this room on phones</h3>
+      <div class="seg" id="menu-list"><button type="button" data-v="on">Listed</button><button type="button" data-v="off">Hidden</button></div>
+      <p class="menu-note">"Listed" shows this room's code in the Open rooms list on the phone join screen, so friends can tap it instead of typing. "Hidden" means players need the code or an invite link.</p>
+    </div>
+    <div class="menu-row">
       <h3>Race track and Boomer the host</h3>
       <div class="seg" id="menu-anim">
         <button type="button" data-anim="off">Off</button>
@@ -775,7 +792,9 @@ const BROKERS = [
   'wss://test.mosquitto.org:8081/mqtt'
 ];
 const TOPIC_ROOT = 'greyhound-speed-bingo/v1/';
-function topics(code){ const b = TOPIC_ROOT + code; return { state: b + '/state', up: b + '/up' }; }
+function topics(code){ const b = TOPIC_ROOT + code; return { state: b + '/state', up: b + '/up', list: TOPIC_ROOT + 'rooms/' + code }; }
+const ROOMS_TOPIC = TOPIC_ROOT + 'rooms/+';
+const ROOM_FRESH_MS = 45000;
 function makeId(){ return Math.random().toString(36).slice(2,10); }
 const params = new URLSearchParams(location.search);
 const IS_TV = params.has('tv');
@@ -1114,8 +1133,73 @@ function broadcastState(){
     try{
       state.client.publish(topics(state.room).state, JSON.stringify({ ts: Date.now(), gstate }), { qos:1, retain:true });
     }catch(e){}
+    publishRoomListing();
   }
   if(state.role === 'tv'){ renderTV(gstate); saveTvRoom(); } else applyState(gstate);
+}
+
+// A tiny public note so phones can list open rooms: code, player count and status.
+function publishRoomListing(force){
+  if(state.role !== 'tv' || !state.client || !state.room) return;
+  const listed = state.settings.listRoom !== false;
+  const g = gstate.game || {};
+  const summary = listed ? JSON.stringify({ code: state.room, players: (gstate.roster || []).length,
+    status: g.status === 'playing' ? (g.paused ? 'paused' : 'racing') : 'lobby' }) : '';
+  const now = Date.now();
+  if(!force && summary === state.lastListing && now - (state.lastListingAt || 0) < 15000) return;
+  state.lastListing = summary; state.lastListingAt = now;
+  try{ state.client.publish(topics(state.room).list, summary ? JSON.stringify(Object.assign(JSON.parse(summary), { ts: now })) : '', { qos:0, retain:true }); }catch(e){}
+}
+
+/* ---------- phone: browse open rooms on the join screen ---------- */
+const openRooms = new Map();
+async function startRoomBrowser(){
+  if(state.role === 'tv' || state.browser || !netLibReady()) return;
+  state.browser = 'connecting';
+  for(const url of BROKERS){
+    if(state.browser !== 'connecting') return;
+    const c = await connectBroker(url);
+    if(!c) continue;
+    if(state.browser !== 'connecting'){ try{ c.end(true); }catch(e){} return; }
+    state.browser = c;
+    c.on('message', (topic, payload)=>{
+      const code = topic.split('/').pop();
+      if(!payload || !payload.length){ openRooms.delete(code); renderRoomList(); return; }
+      try{ const m = JSON.parse(payload.toString()); if(m && m.code === code) openRooms.set(code, m); else openRooms.delete(code); }catch(e){}
+      renderRoomList();
+    });
+    c.subscribe(ROOMS_TOPIC, { qos:0 });
+    renderRoomList();
+    state.browserTick = setInterval(renderRoomList, 5000);
+    return;
+  }
+  state.browser = null;
+  $('room-list').innerHTML = '<div class="room-empty">Couldn\'t load open rooms. You can still type a code.</div>';
+}
+function stopRoomBrowser(){
+  const c = state.browser;
+  state.browser = null;
+  clearInterval(state.browserTick);
+  if(c && c !== 'connecting'){ try{ c.end(true); }catch(e){} }
+}
+function renderRoomList(){
+  const box = $('room-list');
+  if(!box) return;
+  const now = Date.now();
+  const rooms = [...openRooms.values()].filter(r=> now - (r.ts || 0) < ROOM_FRESH_MS).sort((a,b)=> b.ts - a.ts).slice(0, 12);
+  if(!rooms.length){ box.innerHTML = '<div class="room-empty">' + (state.browser && state.browser !== 'connecting' ? 'No open rooms right now.' : 'Looking for open rooms…') + '</div>'; return; }
+  const label = { lobby:'In the lobby', racing:'Race on', paused:'Paused' };
+  const picked = $('in-room').value.toUpperCase();
+  box.innerHTML = rooms.map(r=>{
+    const code = String(r.code).replace(/[^A-Z0-9]/g,'').slice(0,4);
+    const n = Number(r.players) || 0;
+    return `<button type="button" class="room-item${code === picked ? ' on' : ''}" data-code="${code}"><b>${code}</b><span>${n} ${n === 1 ? 'player' : 'players'} · ${label[r.status] || 'Open'}</span></button>`;
+  }).join('');
+  box.querySelectorAll('.room-item').forEach(b=> b.addEventListener('click', ()=>{
+    $('in-room').value = b.dataset.code;
+    renderRoomList();
+    $('in-name').focus();
+  }));
 }
 
 function sendToHost(msg){
@@ -1279,7 +1363,7 @@ async function tryTvCode(attempt, resume){
     broadcastState();
   }, 10000);
   window.addEventListener('pagehide', ()=>{
-    try{ client.publish(t.state, '', { qos:0, retain:true }); }catch(e){}
+    try{ client.publish(t.state, '', { qos:0, retain:true }); client.publish(t.list, '', { qos:0, retain:true }); }catch(e){}
   });
   gstate.hintMode = state.settings.hint || 'stay';
   gstate.caller = state.settings.caller || 'heart';
@@ -1475,6 +1559,7 @@ function renderMenu(){
   document.querySelectorAll('#menu-hint button').forEach(b=> b.classList.toggle('on', b.dataset.hint === (gstate.hintMode || 'stay')));
   document.querySelectorAll('#menu-caller button').forEach(b=> b.classList.toggle('on', b.dataset.caller === callerVoiceKey()));
   document.querySelectorAll('#menu-anim button').forEach(b=> b.classList.toggle('on', b.dataset.anim === state.settings.anim));
+  document.querySelectorAll('#menu-list button').forEach(b=> b.classList.toggle('on', (b.dataset.v === 'on') === (state.settings.listRoom !== false)));
   renderCallerStatus();
 }
 
@@ -1649,6 +1734,7 @@ async function joinViaRelay(room){
     state.client = client;
     client.options.reconnectPeriod = 2000;
     state.netReady = true;
+    stopRoomBrowser();
     client.removeAllListeners('message');
     client.on('message', (topic, payload)=>{
       if(topic !== t.state) return;
@@ -1689,6 +1775,7 @@ async function joinViaRelay(room){
 /* ---------------- phone: solo practice (no TV, no network) ---------------- */
 
 function startPractice(){
+  stopRoomBrowser();
   initAudio();
   unlockSpeech();
   keepAwake();
@@ -2290,6 +2377,9 @@ $('tv-open').addEventListener('click', openTvRoom);
 $('tv-resume').addEventListener('click', resumeTvRoom);
 $('tv-menu-btn').addEventListener('click', openMenu);
 $('tv-pause').addEventListener('click', togglePause);
+document.querySelectorAll('#menu-list button').forEach(b=> b.addEventListener('click', ()=>{
+  state.settings.listRoom = b.dataset.v === 'on'; saveSettings(); renderMenu(); publishRoomListing(true);
+}));
 $('tv-share').addEventListener('click', shareInvite);
 $('tv-share-top').addEventListener('click', shareInvite);
 $('tv-end').addEventListener('click', endGame);
@@ -2355,6 +2445,7 @@ if(IS_TV){
   const pre = (params.get('room') || '').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(pre) $('in-room').value = pre;
   show('screen-join');
+  waitForLib(startRoomBrowser, ()=> renderRoomList());
   const saved = loadSession();
   if(saved && (!pre || pre === saved.room)){
     // The page reloaded mid-game (or the phone dropped the tab): slip back in as the same player.
