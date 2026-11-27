@@ -314,6 +314,7 @@
   .menu-row .seg button{ font-size:clamp(14px,1.2vw,22px); }
   .menu-note{ margin:10px 0 0; color:#6b6152; font-weight:700; font-size:clamp(13px,1.05vw,18px); }
   .tv-menu-btn{ white-space:nowrap; }
+  .tv-share-big{ display:inline-block; width:auto !important; padding-left:36px !important; padding-right:36px !important; margin-top:2.5vh !important; font-size:clamp(16px,1.6vw,30px) !important; }
   body.paused .tv-flavor{ display:block !important; color:var(--yellow); }
   .tv-menu-btn.warn{ background:var(--red); border-color:var(--red-dark); color:#fffdf8; }
   .tv-head-right .tv-menu-btn + .tv-menu-btn{ margin-left:-.6vw; }
@@ -546,6 +547,7 @@
     <h1>Greyhound <span>Speed Bingo</span></h1>
     <div class="tv-head-right">
       <div class="tv-banner" id="tv-banner"></div>
+      <button type="button" class="tv-menu-btn hidden" id="tv-share-top">Share invite</button>
       <button type="button" class="tv-menu-btn hidden" id="tv-pause">Pause</button>
       <button type="button" class="tv-menu-btn hidden" id="tv-end">End game</button>
       <button type="button" class="tv-menu-btn hidden" id="tv-menu-btn">Menu</button>
@@ -571,6 +573,8 @@
         <div class="tv-qr" id="tv-qr"></div>
         <div class="tv-step small">or scan to join</div>
       </div>
+      <div><button type="button" class="btn tv-share-big" id="tv-share">Share invite link</button></div>
+      <div class="tv-step small hidden" id="tv-share-note"></div>
     </div>
     <div class="tv-panel tv-side">
       <h2>In the kennel <span class="tv-count" id="tv-count"></span></h2>
@@ -1307,6 +1311,9 @@ function setupTvLobby(code){
   const qrBox = $('tv-qr');
   qrBox.innerHTML = '';
   const joinLink = base + '?room=' + code;
+  state.joinLink = /^https?:/.test(base) ? joinLink : '';
+  $('tv-share').classList.toggle('hidden', !state.joinLink);
+  $('tv-share-top').classList.toggle('hidden', !state.joinLink);
   if(typeof QRCode !== 'undefined' && /^https?:/.test(base)){
     try{
       new QRCode(qrBox, { text: joinLink, width: 220, height: 220, colorDark:'#3b4252', colorLight:'#fffdf8', correctLevel: QRCode.CorrectLevel.M });
@@ -2228,6 +2235,26 @@ function announcePause(gs){
   }
   state.lastPaused = p;
 }
+// Share a link that opens the game with this room's code filled in.
+async function shareInvite(){
+  const url = state.joinLink;
+  if(!url) return;
+  const code = state.room;
+  const text = 'Join my Greyhound Speed Bingo game! Room code ' + code + '.';
+  const note = (msg)=>{
+    const toast = $('tv-toast');
+    toast.textContent = msg; toast.classList.remove('hidden');
+    clearTimeout(state.toastTimer);
+    state.toastTimer = setTimeout(()=> toast.classList.add('hidden'), 3500);
+  };
+  if(navigator.share){
+    try{ await navigator.share({ title:'Greyhound Speed Bingo', text, url }); return; }
+    catch(e){ if(e && e.name === 'AbortError') return; }
+  }
+  try{ await navigator.clipboard.writeText(text + ' ' + url); note('Invite link copied. Paste it into any app.'); return; }catch(e){}
+  window.prompt('Copy this invite link:', url);
+}
+
 function renderTvControls(gs){
   const on = gs.game && gs.game.status === 'playing' && !(gs.winner && gs.winner.name);
   $('tv-pause').classList.toggle('hidden', !on);
@@ -2263,6 +2290,8 @@ $('tv-open').addEventListener('click', openTvRoom);
 $('tv-resume').addEventListener('click', resumeTvRoom);
 $('tv-menu-btn').addEventListener('click', openMenu);
 $('tv-pause').addEventListener('click', togglePause);
+$('tv-share').addEventListener('click', shareInvite);
+$('tv-share-top').addEventListener('click', shareInvite);
 $('tv-end').addEventListener('click', endGame);
 $('tv-menu-close').addEventListener('click', closeMenu);
 $('tv-menu').addEventListener('click', (e)=>{ if(e.target === $('tv-menu')) closeMenu(); });
